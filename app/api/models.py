@@ -14,6 +14,12 @@ class QueryRequest(BaseModel):
     query_text: str
 
 
+class BitableExportRequest(BaseModel):
+    """Export the last screening result to a configured Feishu Bitable."""
+    query_id: str
+    job_name: str
+
+
 class QueryResponse(BaseModel):
     """筛选查询响应模型"""
     query_id: str

@@ -86,6 +86,20 @@ class DocumentParser:
             logger.error(f"Failed to parse PDF file {file_path}: {e}")
             raise Exception(f"Failed to parse PDF file {file_path}: {e}")
 
+    def parse_docx(self, file_path: str) -> str:
+        """Extract paragraph and table text from a DOCX resume."""
+        try:
+            from docx import Document
+        except ImportError as exc:  # pragma: no cover - dependency guard for old installs
+            raise RuntimeError("DOCX 支持未安装，请执行 pip install -r requirements.txt") from exc
+        document = Document(file_path)
+        paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+        tables = [" | ".join(cell.text.strip() for cell in row.cells) for table in document.tables for row in table.rows]
+        text = "\n".join(paragraphs + tables)
+        if not text.strip():
+            raise ValueError("DOCX 中未提取到文本（可能是扫描图片简历）")
+        return text
+
     def parse_multiple_pdfs(self, file_paths: List[str]) -> Dict[str, str]:
         """
         解析多个PDF文件

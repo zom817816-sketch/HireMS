@@ -6,6 +6,8 @@ import uuid
 import json
 from datetime import datetime
 from typing import Any, Dict
+import os
+import tempfile
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
@@ -13,7 +15,7 @@ from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
 from app.api.models import (
-    UploadResumeResponse, QueryRequest, QueryResponse, ScreeningResult
+    UploadResumeResponse, QueryRequest, QueryResponse, ScreeningResult, BitableExportRequest
 )
 from app.core.cache_manager import CacheManager
 from app.core.document_parser import DocumentParser
@@ -28,6 +30,10 @@ from app.core.ranker import Ranker
 from app.core.analyzer import CandidateAnalyzer
 from app.core.result_formatter import ResultFormatter
 from app.models.metadata import ResumeMetadata, QueryMetadata
+from app.services.email_intake import ImapResumeIntake
+from app.services.feishu_bitable import FeishuBitableWriter
+from app.services.intake_store import IntakeStore
+from config.config import settings
 
 router = APIRouter(prefix="/api/v1")
 
@@ -51,6 +57,42 @@ result_formatter = ResultFormatter()
 # 存储简历和查询结果的内存字典（在实际应用中应使用数据库）
 resume_storage: Dict[str, Any] = {}
 query_storage: Dict[str, Any] = {}
+ops_store = IntakeStore()
+mail_intake = ImapResumeIntake(ops_store)
+bitable_writer = FeishuBitableWriter()
+
+
+def _extract_resume_text(filename: str, content: bytes) -> str:
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in {".pdf", ".docx", ".txt", ".md"}:
+        raise ValueError("仅支持 PDF、DOCX、TXT、MD 格式的简历附件")
+    if suffix in {".pdf", ".docx"}:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            return document_parser.parse_pdf(tmp_path) if suffix == ".pdf" else document_parser.parse_docx(tmp_path)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    return content.decode("utf-8-sig")
+
+
+def _ingest_resume(filename: str, content: bytes, source: dict | None = None) -> str:
+    """Shared ingestion path for Web uploads and email attachments."""
+    if len(content) > MAX_FILE_SIZE:
+        raise ValueError(f"文件大小超过限制 {MAX_FILE_SIZE / 1024 / 1024:.0f}MB")
+    resume_text = _extract_resume_text(filename, content)
+    if not resume_text.strip():
+        raise ValueError("未能从简历中提取文本")
+    metadata = metadata_extractor.extract_metadata(resume_text)
+    resume_id = str(uuid.uuid4())
+    resume_storage[resume_id] = {
+        "id": resume_id, "filename": filename, "text": resume_text,
+        "metadata": metadata.dict(), "created_at": datetime.now(), "source": source or {"source": "web"},
+    }
+    retriever.add_resume(resume_id, resume_text, metadata.dict())
+    return resume_id
 
 
 def _safe_json_loads(value: Any, default: Any = None) -> Any:
@@ -122,48 +164,9 @@ async def upload_resume(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名不能为空")
 
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail=f"文件大小超过限制 {MAX_FILE_SIZE / 1024 / 1024:.0f}MB")
-
-    resume_id = str(uuid.uuid4())
-    logger.info(f"[upload_resume] 文件读取完成, 大小: {len(content)} bytes, resume_id: {resume_id}")
-
     try:
-        if file.filename.lower().endswith('.pdf'):
-            import tempfile
-            import os
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                tmp.write(content)
-                tmp_path = tmp.name
-            logger.info(f"[upload_resume] 临时PDF文件已保存: {tmp_path}")
-            try:
-                resume_text = await run_in_threadpool(document_parser.parse_pdf, tmp_path)
-                logger.info(f"[upload_resume] PDF解析完成, 文本长度: {len(resume_text)}")
-            finally:
-                os.remove(tmp_path)
-                logger.info(f"[upload_resume] 临时PDF文件已删除: {tmp_path}")
-        else:
-            try:
-                resume_text = content.decode('utf-8')
-            except UnicodeDecodeError:
-                raise HTTPException(status_code=400, detail="非PDF文件必须是UTF-8编码的文本")
-            logger.info(f"[upload_resume] 非PDF文件解析完成, 文本长度: {len(resume_text)}")
-
-        metadata = await run_in_threadpool(metadata_extractor.extract_metadata, resume_text)
-        logger.info(f"[upload_resume] 元数据提取完成: {metadata}")
-
-        resume_storage[resume_id] = {
-            "id": resume_id,
-            "filename": file.filename,
-            "text": resume_text,
-            "metadata": metadata.dict(),
-            "created_at": datetime.now()
-        }
-        logger.info(f"[upload_resume] 简历已存储, resume_id: {resume_id}")
-
-        await run_in_threadpool(retriever.add_resume, resume_id, resume_text, metadata.dict())
-        logger.info(f"[upload_resume] 向量数据库已更新, resume_id: {resume_id}")
+        content = await file.read()
+        resume_id = await run_in_threadpool(_ingest_resume, file.filename, content, {"source": "web"})
 
         return UploadResumeResponse(
             resume_id=resume_id,
@@ -172,9 +175,34 @@ async def upload_resume(file: UploadFile = File(...)):
 
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("上传简历失败")
         raise HTTPException(status_code=500, detail="上传简历失败，请稍后重试")
+
+
+@router.get("/operations/status")
+async def operations_status():
+    """Expose setup state without ever returning a secret or password."""
+    return {
+        "mail": {"configured": mail_intake.configured(), "host": settings.MAIL_IMAP_HOST, "user": settings.MAIL_IMAP_USER},
+        "bitable": {"configured": bitable_writer.configured(), "app_token": settings.FEISHU_BITABLE_APP_TOKEN[-6:] if settings.FEISHU_BITABLE_APP_TOKEN else ""},
+        "logs": ops_store.recent_logs(),
+    }
+
+
+@router.post("/operations/mail-sync")
+async def sync_mailbox():
+    try:
+        return await run_in_threadpool(mail_intake.fetch, _ingest_resume)
+    except ValueError as e:
+        ops_store.log("mail_sync", "blocked", str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("邮箱抓取失败")
+        ops_store.log("mail_sync", "failed", str(e))
+        raise HTTPException(status_code=502, detail=f"邮箱抓取失败：{e}")
 
 
 @router.post("/queries", response_model=QueryResponse)
@@ -264,6 +292,26 @@ async def get_screening_results(query_id: str):
     except Exception as e:
         logger.exception("获取筛选结果失败")
         raise HTTPException(status_code=500, detail="获取筛选结果失败，请稍后重试")
+
+
+@router.post("/operations/bitable-export")
+async def export_to_bitable(request: BitableExportRequest):
+    """Run the selected screening query and export qualifying candidates."""
+    try:
+        screening = await get_screening_results(request.query_id)
+        candidates = [candidate.dict() for candidate in screening.candidates]
+        count = await run_in_threadpool(bitable_writer.write_candidates, candidates, request.job_name)
+        ops_store.log("bitable_export", "success", f"岗位 {request.job_name} 写入 {count} 位候选人")
+        return {"exported": count, "message": f"已写入 {count} 条候选人记录"}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        ops_store.log("bitable_export", "blocked", str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("多维表格写入失败")
+        ops_store.log("bitable_export", "failed", str(e))
+        raise HTTPException(status_code=502, detail=f"多维表格写入失败：{e}")
 
 
 @router.get("/resumes/{resume_id}")
