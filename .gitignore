@@ -14,6 +14,7 @@ __pycache__/
 # 运行时数据
 chroma_db/
 cache/
+models/huggingface/
 _conn_test_db/
 _it_db/
 data/*.pdf

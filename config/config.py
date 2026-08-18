@@ -55,6 +55,10 @@ class Settings:
     )
     # local 后端运行设备（cpu / cuda / mps，传给 sentence-transformers）
     EMBEDDING_DEVICE: str = os.getenv("EMBEDDING_DEVICE", "cpu")
+    # 本地 Hugging Face 模型缓存目录。设为项目内目录，方便离线运行和随项目迁移。
+    LOCAL_EMBEDDING_CACHE_DIR: str = os.getenv(
+        "LOCAL_EMBEDDING_CACHE_DIR", "./models/huggingface"
+    )
     # local 后端可选：检索查询前缀指令（bge 中文系列推荐
     # “为这个句子生成表示以用于检索相关文章：”），留空则不加
     EMBEDDING_QUERY_INSTRUCTION: str = os.getenv("EMBEDDING_QUERY_INSTRUCTION", "")

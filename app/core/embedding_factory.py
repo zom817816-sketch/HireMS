@@ -104,6 +104,9 @@ def _create_local_embeddings(embedding_model: Optional[str] = None):
         "encode_kwargs": {"normalize_embeddings": True},
         "model_kwargs": {"device": device},
     }
+    cache_folder = getattr(settings, "LOCAL_EMBEDDING_CACHE_DIR", "")
+    if cache_folder:
+        embedding_kwargs["cache_folder"] = cache_folder
     query_instruction = getattr(settings, "EMBEDDING_QUERY_INSTRUCTION", "")
     if query_instruction:
         # bge 等检索模型推荐为查询侧加指令前缀（文档侧不加）
@@ -112,6 +115,7 @@ def _create_local_embeddings(embedding_model: Optional[str] = None):
     embeddings = HuggingFaceEmbeddings(**embedding_kwargs)
     logger.info(
         f"Initialized local HuggingFaceEmbeddings with model: {model_name}, device: {device}"
+        + (f", cache: {cache_folder}" if cache_folder else "")
         + (f", query_instruction: {query_instruction!r}" if query_instruction else "")
         + " (dimension auto-detected)"
     )
