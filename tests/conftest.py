@@ -10,8 +10,9 @@ import hashlib
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("OPENAI_BASE_URL", "https://test.url/v1")
-# 单元测试固定使用 ChromaDB 后端，避免误连真实 Milvus
+# 单元测试固定使用 ChromaDB 后端与 openai 嵌入后端（FakeEmbeddings 按此路径注入）
 os.environ["VECTOR_DB"] = "chroma"
+os.environ["EMBEDDING_PROVIDER"] = "openai"
 
 import pytest
 
@@ -42,15 +43,9 @@ class FakeEmbeddings:
 
 @pytest.fixture(autouse=True)
 def fake_embeddings(monkeypatch):
-    """全局替换 VectorStoreManager 使用的 OpenAIEmbeddings，避免真实网络调用。"""
+    """全局替换嵌入工厂使用的 OpenAIEmbeddings，避免真实网络调用。"""
     monkeypatch.setattr(
-        "app.core.vector_store.OpenAIEmbeddings",
-        FakeEmbeddings,
-        raising=False,
-    )
-    # Milvus 后端（若被导入）同样替换为假嵌入
-    monkeypatch.setattr(
-        "app.core.milvus_store.OpenAIEmbeddings",
+        "app.core.embedding_factory.OpenAIEmbeddings",
         FakeEmbeddings,
         raising=False,
     )

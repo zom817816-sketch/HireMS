@@ -45,8 +45,21 @@ class Settings:
     # 优先 EMBEDDING_*，回退到 LLM_* / OPENAI_*
     EMBEDDING_API_KEY: str = _first_env("EMBEDDING_API_KEY", "LLM_API_KEY", "OPENAI_API_KEY")
     EMBEDDING_BASE_URL = _first_env("EMBEDDING_BASE_URL", "LLM_BASE_URL", "OPENAI_BASE_URL") or None
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-    # 嵌入向量维度（智谱 embedding-3 支持自定义，默认 2048；留空则用服务端默认）
+    # 嵌入后端：openai（默认，OpenAI 兼容 API）/ local（本地 sentence-transformers 轻量模型）
+    EMBEDDING_PROVIDER: str = (os.getenv("EMBEDDING_PROVIDER") or "openai").strip().lower()
+    # local 后端的默认模型（512 维 / 约 95MB，中文检索效果好的轻量级选择）
+    EMBEDDING_DEFAULT_LOCAL_MODEL: str = "BAAI/bge-small-zh-v1.5"
+    # 模型名：未显式配置时按后端选择默认值
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL") or (
+        EMBEDDING_DEFAULT_LOCAL_MODEL if EMBEDDING_PROVIDER == "local" else "text-embedding-3-small"
+    )
+    # local 后端运行设备（cpu / cuda / mps，传给 sentence-transformers）
+    EMBEDDING_DEVICE: str = os.getenv("EMBEDDING_DEVICE", "cpu")
+    # local 后端可选：检索查询前缀指令（bge 中文系列推荐
+    # “为这个句子生成表示以用于检索相关文章：”），留空则不加
+    EMBEDDING_QUERY_INSTRUCTION: str = os.getenv("EMBEDDING_QUERY_INSTRUCTION", "")
+    # 嵌入向量维度（仅 openai 后端使用；智谱 embedding-3 支持自定义，默认 2048。
+    # local 后端维度由模型自动决定，此配置被忽略）
     EMBEDDING_DIMENSIONS = int(os.getenv("EMBEDDING_DIMENSIONS")) if os.getenv("EMBEDDING_DIMENSIONS") else 2048
 
     # 向量数据库

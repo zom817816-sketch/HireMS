@@ -13,13 +13,12 @@ Milvus / Zilliz Cloud 向量数据库管理模块
 
 依赖 pymilvus 的 MilvusClient（轻量客户端，兼容本地 Milvus 与 Zilliz Cloud）。
 """
-import os
 from typing import List, Dict, Any, Optional
 
 from loguru import logger
-from langchain_openai import OpenAIEmbeddings
 
 from config.config import settings
+from app.core.embedding_factory import create_embeddings, probe_embedding_dimension
 
 
 # 单条 VARCHAR 字段的最大长度（document 文本可能较长）
@@ -65,22 +64,10 @@ class MilvusVectorStoreManager:
 
         embedding_model = embedding_model or settings.EMBEDDING_MODEL
 
-        # 初始化嵌入模型（与 Chroma 版保持一致的 key/base_url 回退逻辑）
-        api_key = os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or settings.EMBEDDING_API_KEY
-        base_url = os.getenv("EMBEDDING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or settings.EMBEDDING_BASE_URL
-        if not api_key:
-            raise ValueError("EMBEDDING_API_KEY (or OPENAI_API_KEY) environment variable is not set")
-
-        embedding_kwargs = {
-            "model": embedding_model,
-            "openai_api_key": api_key,
-            "openai_api_base": base_url,
-        }
-        self.dimensions = getattr(settings, "EMBEDDING_DIMENSIONS", None) or 1536
-        if getattr(settings, "EMBEDDING_DIMENSIONS", None):
-            embedding_kwargs["dimensions"] = settings.EMBEDDING_DIMENSIONS
-
-        self.embeddings = OpenAIEmbeddings(**embedding_kwargs)
+        # 初始化嵌入模型（openai 兼容 API 或本地轻量模型，统一由工厂创建）
+        self.embeddings, dims = create_embeddings(embedding_model)
+        # openai 后端使用配置维度；local 后端维度由模型决定，需实际探测
+        self.dimensions = dims or probe_embedding_dimension(self.embeddings)
         self.index_type = getattr(settings, "MILVUS_INDEX", "AUTOINDEX") or "AUTOINDEX"
 
         # 建立客户端连接

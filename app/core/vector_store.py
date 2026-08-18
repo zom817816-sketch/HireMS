@@ -3,10 +3,10 @@ from chromadb.config import Settings
 from typing import List, Dict, Any, Optional
 import os
 from loguru import logger
-from langchain_openai import OpenAIEmbeddings
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 from config.config import settings
 from app.core.metadata_utils import serialize_metadata
+from app.core.embedding_factory import create_embeddings
 
 
 class VectorStoreManager:
@@ -26,29 +26,9 @@ class VectorStoreManager:
         embedding_model = embedding_model or settings.EMBEDDING_MODEL
         # 创建持久化目录
         os.makedirs(self.persist_directory, exist_ok=True)
-        
-        # 初始化嵌入模型（Embedding 专用 key/base_url，回退到 LLM/OPENAI）
-        api_key = os.getenv("EMBEDDING_API_KEY") or os.getenv("OPENAI_API_KEY") or settings.EMBEDDING_API_KEY
-        base_url = os.getenv("EMBEDDING_BASE_URL") or os.getenv("OPENAI_BASE_URL") or settings.EMBEDDING_BASE_URL
 
-        if not api_key:
-            raise ValueError("EMBEDDING_API_KEY (or OPENAI_API_KEY) environment variable is not set")
-        
-        # 组装嵌入模型参数；如配置了维度则透传（智谱 embedding-3 支持自定义维度）
-        embedding_kwargs = {
-            "model": embedding_model,
-            "openai_api_key": api_key,
-            "openai_api_base": base_url,
-        }
-        dimensions = getattr(settings, "EMBEDDING_DIMENSIONS", None)
-        if dimensions:
-            embedding_kwargs["dimensions"] = dimensions
-
-        self.embeddings = OpenAIEmbeddings(**embedding_kwargs)
-        logger.info(
-            f"Initialized OpenAIEmbeddings with model: {embedding_model}"
-            + (f", dimensions: {dimensions}" if dimensions else "")
-        )
+        # 初始化嵌入模型（openai 兼容 API 或本地轻量模型，统一由工厂创建）
+        self.embeddings, _ = create_embeddings(embedding_model)
         
         # 初始化客户端
         self.client = chromadb.PersistentClient(
