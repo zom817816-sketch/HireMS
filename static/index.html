@@ -3,44 +3,73 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>智能简历筛选系统</title>
+  <title>HireMS · 招聘控制台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <h1>🧠 智能简历筛选系统</h1>
-    <div class="status">
-      后端状态：<span id="health-badge" class="badge badge-unknown">检测中…</span>
-    </div>
-  </header>
+  <div class="grain"></div>
+  <aside class="sidebar">
+    <a class="brand" href="#top"><span class="brand-mark">H</span><span>HireMS<small>OPERATIONS</small></span></a>
+    <nav>
+      <a class="nav-item active" href="#workspace"><span>01</span>招聘工作台</a>
+      <a class="nav-item" href="#candidates"><span>02</span>候选人队列</a>
+      <a class="nav-item" href="#activity"><span>03</span>运行记录</a>
+    </nav>
+    <div class="sidebar-foot"><i></i><span id="health-text">正在连接本地服务</span></div>
+  </aside>
 
-  <main class="layout">
-    <!-- 左列：上传 + 简历列表 -->
-    <section class="panel">
-      <h2>1. 上传简历</h2>
-      <p class="hint">支持 .txt / .pdf，可一次选择多个文件。</p>
-      <input type="file" id="resume-files" multiple accept=".txt,.pdf,.md" />
-      <button id="upload-btn" class="btn primary">上传</button>
-      <div id="upload-log" class="log"></div>
+  <main id="top">
+    <header class="topline">
+      <div><p class="eyebrow">RECRUITING AUTOMATION / LOCAL</p><h1>把每一封简历邮件<br>变成可行动的候选人。</h1></div>
+      <div class="date-block"><span id="today"></span><b>HR 工作台</b></div>
+    </header>
 
-      <h2>已上传简历 <span id="resume-count" class="muted"></span></h2>
-      <button id="refresh-btn" class="btn">刷新列表</button>
-      <ul id="resume-list" class="resume-list"></ul>
+    <section class="metrics" aria-label="状态概览">
+      <article><span>简历库</span><strong id="resume-count">—</strong><em>本次运行已入库</em></article>
+      <article><span>邮箱连接</span><strong id="mail-status">待配置</strong><em>飞书企业邮箱 / IMAP</em></article>
+      <article><span>多维表格</span><strong id="bitable-status">待配置</strong><em>仅导出达到阈值的候选人</em></article>
     </section>
 
-    <!-- 右列：查询 + 结果 -->
-    <section class="panel">
-      <h2>2. 输入岗位需求</h2>
-      <textarea id="query-text" rows="5"
-        placeholder="示例：招聘一名有3年以上经验的Python后端工程师，熟悉FastAPI和分布式系统，本科及以上学历，工作地点北京。"></textarea>
-      <button id="query-btn" class="btn primary">开始筛选</button>
-      <div id="query-log" class="log"></div>
-
-      <h2>3. 筛选结果 <span id="result-meta" class="muted"></span></h2>
-      <div id="results" class="results"></div>
+    <section id="workspace" class="workspace">
+      <div class="section-label"><span>01 / INTAKE</span><h2>收件与入库</h2></div>
+      <div class="intake-grid">
+        <article class="action-card mail-card">
+          <div class="card-top"><span class="icon-box">✉</span><span id="mail-dot" class="connection-dot"></span></div>
+          <h3>从飞书邮箱抓取</h3>
+          <p>扫描最近的简历邮件，解析 PDF、DOCX 或文本附件，并自动去重入库。</p>
+          <button id="sync-mail-btn" class="button dark">立即同步 <span>→</span></button>
+          <small>连接信息只从本机 <code>.env</code> 读取</small>
+        </article>
+        <article class="action-card upload-card">
+          <div class="card-top"><span class="icon-box">↥</span><span>备用通道</span></div>
+          <h3>手动导入简历</h3>
+          <p>拖入或选择本地文件，适合补录或测试筛选规则。</p>
+          <label for="resume-files" class="drop-zone"><b>选择文件</b><span>PDF · DOCX · TXT · MD，单文件 ≤ 10MB</span></label>
+          <input id="resume-files" type="file" multiple accept=".txt,.pdf,.md,.docx" />
+          <button id="upload-btn" class="button outline">导入所选文件</button>
+        </article>
+      </div>
+      <pre id="intake-log" class="run-log" aria-live="polite">等待操作</pre>
     </section>
+
+    <section class="screening">
+      <div class="section-label"><span>02 / SCREEN</span><h2>定义岗位，开始筛选</h2></div>
+      <div class="screen-shell">
+        <div class="job-input"><label for="query-text">岗位要求 <span>自然语言描述</span></label><textarea id="query-text" rows="5" placeholder="例如：招聘一名有 3 年以上经验的 Python 后端工程师，熟悉 FastAPI，本科及以上，工作地点北京。"></textarea><div class="input-footer"><span>AI 将提取硬性条件并进行语义评分</span><button id="query-btn" class="button signal">运行筛选 <span>↗</span></button></div></div>
+        <aside class="rule-note"><p>筛选顺序</p><ol><li>解析简历及附件</li><li>硬条件初筛</li><li>AI 综合匹配评分</li><li>写入待复核队列</li></ol></aside>
+      </div>
+    </section>
+
+    <section id="candidates" class="candidates-section">
+      <div class="results-title"><div><p class="eyebrow">03 / REVIEW</p><h2>候选人队列 <span id="result-meta"></span></h2></div><button id="export-btn" class="button outline" disabled>写入飞书多维表格</button></div>
+      <div id="results" class="results"><div class="empty-state">运行一次筛选后，候选人会在这里按匹配度排列。</div></div>
+    </section>
+
+    <section id="activity" class="activity-section"><div class="section-label"><span>04 / TRACE</span><h2>运行记录</h2></div><div id="activity-log" class="activity-log"><div class="empty-state">还没有运行记录。</div></div></section>
   </main>
-
   <script src="./app.js"></script>
 </body>
 </html>
