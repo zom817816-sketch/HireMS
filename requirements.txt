@@ -17,6 +17,7 @@ httpx
 pytest
 pymilvus
 pyinstaller
+APScheduler
 
 # 本地轻量 Embedding（EMBEDDING_PROVIDER=local）为可选依赖，含 torch 体积较大，
 # 需要时另装：pip install -r requirements-local.txt

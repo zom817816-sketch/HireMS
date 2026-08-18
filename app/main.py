@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import routes
 from config.config import settings
+from app.services.notification_scheduler import NotificationScheduler
 
 
 class UTF8JSONResponse(JSONResponse):
@@ -21,6 +22,7 @@ app = FastAPI(
     description="基于LLM的智能简历筛选系统 API",
     default_response_class=UTF8JSONResponse,
 )
+notification_scheduler = NotificationScheduler()
 
 # 跨域支持（前端单独部署时需要）
 app.add_middleware(
@@ -33,6 +35,16 @@ app.add_middleware(
 
 # 包含API路由
 app.include_router(routes.router)
+
+
+@app.on_event("startup")
+async def start_notification_scheduler():
+    notification_scheduler.start()
+
+
+@app.on_event("shutdown")
+async def stop_notification_scheduler():
+    notification_scheduler.shutdown()
 
 # 挂载内置静态前端页面（/ui）
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
