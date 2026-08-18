@@ -19,6 +19,7 @@ _conn_test_db/
 _it_db/
 data/*.pdf
 *.log
+*.sqlite3
 
 # 虚拟环境
 .venv/
