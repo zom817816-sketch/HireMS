@@ -104,6 +104,19 @@ def _ingest_resume(filename: str, content: bytes, source: dict | None = None) ->
     return resume_id
 
 
+def _friendly_ingest_error(error: Exception) -> tuple[int, str]:
+    """Return an actionable upload error without leaking credentials or stack traces."""
+    message = str(error).lower()
+    if any(token in message for token in ("connection error", "connecterror", "timeout", "network")):
+        return 502, (
+            "无法连接 LLM 服务，简历尚未入库。请检查 LLM_BASE_URL、LLM_API_KEY、"
+            "网络/代理设置，以及模型名称是否与方舟接口类型匹配。"
+        )
+    if any(token in message for token in ("embedding", "chromadb", "vector", "collection")):
+        return 503, "向量库写入失败，简历尚未入库。请检查本地 Embedding 模型和 Chroma 数据目录。"
+    return 500, "简历解析或结构化提取失败，简历尚未入库。请查看服务端日志获取详细原因。"
+
+
 def _safe_json_loads(value: Any, default: Any = None) -> Any:
     """安全解析 JSON 字符串；若已是目标类型则直接返回。"""
     if default is None:
@@ -188,7 +201,8 @@ async def upload_resume(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("上传简历失败")
-        raise HTTPException(status_code=500, detail="上传简历失败，请稍后重试")
+        status_code, detail = _friendly_ingest_error(e)
+        raise HTTPException(status_code=status_code, detail=detail)
 
 
 @router.get("/operations/status")

@@ -78,9 +78,10 @@
           <span class="card-index">LOCAL / 02</span>
           <h3>手动导入简历</h3>
           <p>拖入或选择本地文件，适合补录、校验规则或单份候选人复核。</p>
-          <label for="resume-files" class="drop-zone"><b>选择文件</b><span>PDF · DOCX · TXT · MD<br>单文件 ≤ 10MB</span></label>
+          <button id="choose-files-btn" type="button" class="drop-zone" aria-describedby="selected-files"><b>选择文件</b><span>PDF · DOCX · TXT · MD<br>单文件 ≤ 10MB</span></button>
           <input id="resume-files" type="file" multiple accept=".txt,.pdf,.md,.docx" />
-          <button id="upload-btn" class="button outline">导入所选文件</button>
+          <p id="selected-files" class="selected-files" aria-live="polite">尚未选择文件</p>
+          <button id="upload-btn" type="button" class="button outline" disabled>导入所选文件</button>
         </article>
       </div>
       <pre id="intake-log" class="run-log" aria-live="polite">等待操作</pre>

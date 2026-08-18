@@ -98,7 +98,37 @@ async function uploadResumes() {
   }
   setLog(`导入完成：${ok}/${files.length}\n${lines.join("\n")}`);
   notify(ok ? `${ok} 份简历已进入信号队列` : "没有简历被成功导入");
-  input.value = ""; $("upload-btn").disabled = false; await loadResumes();
+  input.value = ""; updateSelectedFiles(); await loadResumes();
+}
+
+function updateSelectedFiles(files = $("resume-files").files) {
+  const selection = $("selected-files");
+  const uploadButton = $("upload-btn");
+  const selected = [...files];
+  uploadButton.disabled = !selected.length;
+  selection.classList.toggle("ready", Boolean(selected.length));
+  if (!selected.length) { selection.textContent = "尚未选择文件"; return; }
+  const names = selected.slice(0, 2).map((file) => file.name).join("、");
+  const rest = selected.length > 2 ? ` 等 ${selected.length} 份文件` : "";
+  selection.textContent = `已选择：${names}${rest}，可开始导入`;
+}
+
+function setupFileIntake() {
+  const input = $("resume-files");
+  const chooser = $("choose-files-btn");
+  chooser.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => updateSelectedFiles());
+  ["dragenter", "dragover"].forEach((eventName) => chooser.addEventListener(eventName, (event) => {
+    event.preventDefault(); chooser.classList.add("dragging");
+  }));
+  ["dragleave", "drop"].forEach((eventName) => chooser.addEventListener(eventName, (event) => {
+    event.preventDefault(); chooser.classList.remove("dragging");
+  }));
+  chooser.addEventListener("drop", (event) => {
+    if (!event.dataTransfer?.files?.length) return;
+    input.files = event.dataTransfer.files;
+    updateSelectedFiles(event.dataTransfer.files);
+  });
 }
 
 function actionsFor(candidate) {
@@ -229,5 +259,6 @@ $("schedule-form").addEventListener("submit", scheduleForm);
 document.addEventListener("click", (event) => { const button = event.target.closest("[data-candidate][data-action]"); if (button) candidateAction(button.dataset.candidate, button.dataset.action); });
 $("today").textContent = new Intl.DateTimeFormat("zh-CN", {year: "numeric", month: "long", day: "numeric", weekday: "short"}).format(new Date());
 setupMotion();
+setupFileIntake();
 Promise.all([checkHealth(), loadResumes(), loadStatus(), loadPipeline()]);
 setInterval(checkHealth, 30000);
