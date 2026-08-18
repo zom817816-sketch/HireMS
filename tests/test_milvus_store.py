@@ -105,9 +105,10 @@ def milvus_store_module(monkeypatch):
     monkeypatch.setattr(settings, "MILVUS_TOKEN", "", raising=False)
     monkeypatch.setattr(settings, "EMBEDDING_DIMENSIONS", 8, raising=False)
 
-    # 用确定性假嵌入替换
+    # 用确定性假嵌入替换（嵌入模型统一在工厂模块内创建）
     from tests.conftest import FakeEmbeddings
-    monkeypatch.setattr(ms, "OpenAIEmbeddings", FakeEmbeddings, raising=False)
+    from app.core import embedding_factory as ef
+    monkeypatch.setattr(ef, "OpenAIEmbeddings", FakeEmbeddings, raising=False)
 
     yield ms
 
