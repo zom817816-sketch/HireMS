@@ -16,7 +16,8 @@
     <nav>
       <a class="nav-item active" href="#workspace"><span>01</span>招聘工作台</a>
       <a class="nav-item" href="#candidates"><span>02</span>候选人队列</a>
-      <a class="nav-item" href="#activity"><span>03</span>运行记录</a>
+      <a class="nav-item" href="#pipeline"><span>03</span>招聘流程</a>
+      <a class="nav-item" href="#activity"><span>04</span>运行记录</a>
     </nav>
     <div class="sidebar-foot"><i></i><span id="health-text">正在连接本地服务</span></div>
   </aside>
@@ -68,8 +69,23 @@
       <div id="results" class="results"><div class="empty-state">运行一次筛选后，候选人会在这里按匹配度排列。</div></div>
     </section>
 
-    <section id="activity" class="activity-section"><div class="section-label"><span>04 / TRACE</span><h2>运行记录</h2></div><div id="activity-log" class="activity-log"><div class="empty-state">还没有运行记录。</div></div></section>
+    <section id="pipeline" class="pipeline-section">
+      <div class="results-title"><div><p class="eyebrow">04 / PIPELINE</p><h2>招聘流程 <span id="pipeline-meta"></span></h2></div><div class="notification-actions"><button id="summary-btn" class="button outline">发送每日汇总</button><button id="overdue-btn" class="button outline">检查超时简历</button></div></div>
+      <div id="pipeline-board" class="pipeline-board"><div class="empty-state">筛选产生候选人后，这里将显示从复核到 Offer 的完整进度。</div></div>
+    </section>
+
+    <section id="activity" class="activity-section"><div class="section-label"><span>05 / TRACE</span><h2>运行记录</h2></div><div id="activity-log" class="activity-log"><div class="empty-state">还没有运行记录。</div></div></section>
   </main>
+  <dialog id="schedule-dialog" class="schedule-dialog">
+    <form id="schedule-form" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">INTERVIEW / SCHEDULE</p><h2>安排面试</h2></div><button type="button" id="close-schedule" class="close-button">×</button></div>
+      <input id="schedule-candidate-id" type="hidden" /><p id="schedule-candidate-name" class="dialog-candidate"></p>
+      <div class="form-grid"><label>面试轮次<select id="interview-round"><option>一面</option><option>二面</option><option>终面</option></select></label><label>地点 / 会议链接<input id="interview-location" value="线上" /></label><label>开始时间<input id="interview-start" type="datetime-local" required /></label><label>结束时间<input id="interview-end" type="datetime-local" required /></label></div>
+      <label>面试官飞书 Open ID <span>多个 ID 用英文逗号分隔，用于提醒</span><input id="interviewer-ids" placeholder="ou_xxx, ou_yyy" /></label>
+      <label>面试备注<textarea id="interview-note" rows="3" placeholder="考察重点、会议说明等"></textarea></label>
+      <div class="dialog-foot"><span>配置飞书日历后会同步创建日程；未配置时仅保存本地排期。</span><button class="button signal" value="default">确认安排</button></div>
+    </form>
+  </dialog>
   <script src="./app.js"></script>
 </body>
 </html>
