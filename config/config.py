@@ -59,6 +59,11 @@ class Settings:
     LOCAL_EMBEDDING_CACHE_DIR: str = os.getenv(
         "LOCAL_EMBEDDING_CACHE_DIR", "./models/huggingface"
     )
+    # 本地模型默认不访问 Hugging Face，避免内网/离线环境启动时产生重试等待。
+    # 需要主动更新或首次下载模型时可设为 false。
+    LOCAL_EMBEDDING_OFFLINE: bool = os.getenv(
+        "LOCAL_EMBEDDING_OFFLINE", "true"
+    ).strip().lower() not in {"0", "false", "no", "off"}
     # local 后端可选：检索查询前缀指令（bge 中文系列推荐
     # “为这个句子生成表示以用于检索相关文章：”），留空则不加
     EMBEDDING_QUERY_INSTRUCTION: str = os.getenv("EMBEDDING_QUERY_INSTRUCTION", "")
