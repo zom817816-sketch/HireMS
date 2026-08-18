@@ -124,6 +124,12 @@ class Settings:
     FEISHU_BITABLE_APP_TOKEN: str = os.getenv("FEISHU_BITABLE_APP_TOKEN", "")
     FEISHU_BITABLE_TABLE_ID: str = os.getenv("FEISHU_BITABLE_TABLE_ID", "")
     FEISHU_EXPORT_MIN_SCORE: float = float(os.getenv("FEISHU_EXPORT_MIN_SCORE", "0.70"))
+    FEISHU_HR_RECEIVER_IDS: str = os.getenv("FEISHU_HR_RECEIVER_IDS", "")
+    FEISHU_CALENDAR_ID: str = os.getenv("FEISHU_CALENDAR_ID", "")
+    FEISHU_INTERVIEWER_CALENDAR_MAP: str = os.getenv("FEISHU_INTERVIEWER_CALENDAR_MAP", "{}")
+    FEISHU_CALLBACK_TOKEN: str = os.getenv("FEISHU_CALLBACK_TOKEN", "")
+    FEISHU_PUBLIC_BASE_URL: str = os.getenv("FEISHU_PUBLIC_BASE_URL", "")
+    NOTIFY_OVERDUE_HOURS: int = int(os.getenv("NOTIFY_OVERDUE_HOURS", "48"))
 
 
 settings = Settings()
