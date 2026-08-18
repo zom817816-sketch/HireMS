@@ -3,52 +3,82 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HireMS · 招聘控制台</title>
+  <meta name="theme-color" content="#101c1a" />
+  <title>HireMS · 招聘信号台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,500;6..96,600;6..96,700&family=DM+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <div class="grain"></div>
+  <div class="grain" aria-hidden="true"></div>
+  <div class="scroll-progress" aria-hidden="true"><i></i></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
   <aside class="sidebar">
-    <a class="brand" href="#top"><span class="brand-mark">H</span><span>HireMS<small>OPERATIONS</small></span></a>
-    <nav>
-      <a class="nav-item active" href="#workspace"><span>01</span>招聘工作台</a>
-      <a class="nav-item" href="#candidates"><span>02</span>候选人队列</a>
-      <a class="nav-item" href="#pipeline"><span>03</span>招聘流程</a>
-      <a class="nav-item" href="#activity"><span>04</span>运行记录</a>
+    <a class="brand" href="#top" aria-label="回到顶部"><span class="brand-mark">H</span><span>HireMS<small>RECRUITING SIGNALS</small></span></a>
+    <nav aria-label="页面导航">
+      <a class="nav-item active" data-section="workspace" href="#workspace"><span>01</span>收件入库</a>
+      <a class="nav-item" data-section="screening" href="#screening"><span>02</span>智能筛选</a>
+      <a class="nav-item" data-section="candidates" href="#candidates"><span>03</span>候选人</a>
+      <a class="nav-item" data-section="pipeline" href="#pipeline"><span>04</span>流程推进</a>
+      <a class="nav-item" data-section="activity" href="#activity"><span>05</span>运行轨迹</a>
     </nav>
     <div class="sidebar-foot"><i></i><span id="health-text">正在连接本地服务</span></div>
   </aside>
 
   <main id="top">
-    <header class="topline">
-      <div><p class="eyebrow">RECRUITING AUTOMATION / LOCAL</p><h1>把每一封简历邮件<br>变成可行动的候选人。</h1></div>
+    <header class="hero reveal">
+      <div class="hero-copy">
+        <p class="eyebrow">RECRUITING AUTOMATION / LOCAL</p>
+        <h1>让每一封<br><em>简历信号</em>抵达<br>正确的人。</h1>
+        <p class="hero-intro">从飞书邮箱到招聘决策，一条连续、可追溯且由人掌控的候选人信号流。</p>
+        <a class="hero-link" href="#workspace">开始处理 <span>↓</span></a>
+      </div>
+      <div class="signal-scene" aria-label="招聘信号处理流程示意">
+        <div class="scene-orbit orbit-one"></div><div class="scene-orbit orbit-two"></div>
+        <div class="signal-route"><i></i><i></i><i></i></div>
+        <div class="signal-node node-mail"><b>01</b><span>INBOX</span></div>
+        <div class="signal-node node-ai"><b>02</b><span>AI MATCH</span></div>
+        <div class="signal-node node-human"><b>03</b><span>HR ACTION</span></div>
+        <p class="scene-caption">邮件 · 结构化 · 决策</p>
+      </div>
       <div class="date-block"><span id="today"></span><b>HR 工作台</b></div>
     </header>
 
-    <section class="metrics" aria-label="状态概览">
-      <article><span>简历库</span><strong id="resume-count">—</strong><em>本次运行已入库</em></article>
-      <article><span>邮箱连接</span><strong id="mail-status">待配置</strong><em>飞书企业邮箱 / IMAP</em></article>
-      <article><span>多维表格</span><strong id="bitable-status">待配置</strong><em>仅导出达到阈值的候选人</em></article>
+    <section class="metrics reveal" aria-label="系统状态概览">
+      <article><span>简历信号</span><strong id="resume-count">—</strong><em>当前已入库</em></article>
+      <article><span>邮箱通道</span><strong id="mail-status">待配置</strong><em>飞书企业邮箱 / IMAP</em></article>
+      <article><span>数据落点</span><strong id="bitable-status">待配置</strong><em>飞书多维表格</em></article>
     </section>
 
-    <section id="workspace" class="workspace">
-      <div class="section-label"><span>01 / INTAKE</span><h2>收件与入库</h2></div>
+    <section class="journey reveal" aria-label="招聘流程叙事">
+      <div class="journey-title"><p class="eyebrow">THE SIGNAL PATH</p><p>滚动浏览一条简历从抵达到决策的路径</p></div>
+      <div class="journey-track">
+        <article class="journey-step is-active"><b>01</b><span>收件</span><small>信号抵达</small></article>
+        <article class="journey-step"><b>02</b><span>解析</span><small>信息成形</small></article>
+        <article class="journey-step"><b>03</b><span>匹配</span><small>规则与语义</small></article>
+        <article class="journey-step"><b>04</b><span>推进</span><small>人的决定</small></article>
+      </div>
+    </section>
+
+    <section id="workspace" class="workspace story-section reveal">
+      <div class="section-label"><span>01 / INTAKE</span><h2>收件，然后让信号成形</h2><p>每份简历先有清晰的来源，后有可靠的判断。</p></div>
       <div class="intake-grid">
-        <article class="action-card mail-card">
-          <div class="card-top"><span class="icon-box">✉</span><span id="mail-dot" class="connection-dot"></span></div>
+        <article class="action-card mail-card magnetic-card">
+          <div class="card-top"><span class="icon-box">✦</span><span id="mail-dot" class="connection-dot"></span></div>
+          <span class="card-index">MAIL / 01</span>
           <h3>从飞书邮箱抓取</h3>
           <p>扫描最近的简历邮件，解析 PDF、DOCX 或文本附件，并自动去重入库。</p>
           <button id="sync-mail-btn" class="button dark">立即同步 <span>→</span></button>
-          <small>连接信息只从本机 <code>.env</code> 读取</small>
+          <small>连接信息仅从本机 <code>.env</code> 读取</small>
         </article>
-        <article class="action-card upload-card">
-          <div class="card-top"><span class="icon-box">↥</span><span>备用通道</span></div>
+        <article class="action-card upload-card magnetic-card">
+          <div class="card-top"><span class="icon-box">↗</span><span>备用通道</span></div>
+          <span class="card-index">LOCAL / 02</span>
           <h3>手动导入简历</h3>
-          <p>拖入或选择本地文件，适合补录或测试筛选规则。</p>
-          <label for="resume-files" class="drop-zone"><b>选择文件</b><span>PDF · DOCX · TXT · MD，单文件 ≤ 10MB</span></label>
+          <p>拖入或选择本地文件，适合补录、校验规则或单份候选人复核。</p>
+          <label for="resume-files" class="drop-zone"><b>选择文件</b><span>PDF · DOCX · TXT · MD<br>单文件 ≤ 10MB</span></label>
           <input id="resume-files" type="file" multiple accept=".txt,.pdf,.md,.docx" />
           <button id="upload-btn" class="button outline">导入所选文件</button>
         </article>
@@ -56,33 +86,35 @@
       <pre id="intake-log" class="run-log" aria-live="polite">等待操作</pre>
     </section>
 
-    <section class="screening">
-      <div class="section-label"><span>02 / SCREEN</span><h2>定义岗位，开始筛选</h2></div>
-      <div class="screen-shell">
-        <div class="job-input"><label for="query-text">岗位要求 <span>自然语言描述</span></label><textarea id="query-text" rows="5" placeholder="例如：招聘一名有 3 年以上经验的 Python 后端工程师，熟悉 FastAPI，本科及以上，工作地点北京。"></textarea><div class="input-footer"><span>AI 将提取硬性条件并进行语义评分</span><button id="query-btn" class="button signal">运行筛选 <span>↗</span></button></div></div>
-        <aside class="rule-note"><p>筛选顺序</p><ol><li>解析简历及附件</li><li>硬条件初筛</li><li>AI 综合匹配评分</li><li>写入待复核队列</li></ol></aside>
+    <section id="screening" class="screening story-section reveal">
+      <div class="section-label"><span>02 / SCREEN</span><h2>把岗位描述变成筛选语言</h2><p>规则守住底线，语义判断寻找可能性。</p></div>
+      <div id="screen-shell" class="screen-shell">
+        <div class="screen-status" aria-live="polite"><span class="pulse-dot"></span><span id="screen-status-text">等待岗位要求</span></div>
+        <div class="job-input"><label for="query-text">岗位要求 <span>自然语言描述</span></label><textarea id="query-text" rows="5" placeholder="例如：招聘一名有 3 年以上经验的 Python 后端工程师，熟悉 FastAPI，本科及以上，工作地点北京。"></textarea><div class="input-footer"><span>AI 将提取硬性条件并进行语义评分</span><button id="query-btn" class="button signal">运行筛选 <span>→</span></button></div></div>
+        <aside class="rule-note"><p>信号拆解</p><ol><li><span>01</span>解析简历及附件</li><li><span>02</span>硬条件初筛</li><li><span>03</span>语义匹配评分</li><li><span>04</span>写入待复核队列</li></ol></aside>
       </div>
     </section>
 
-    <section id="candidates" class="candidates-section">
-      <div class="results-title"><div><p class="eyebrow">03 / REVIEW</p><h2>候选人队列 <span id="result-meta"></span></h2></div><button id="export-btn" class="button outline" disabled>写入飞书多维表格</button></div>
-      <div id="results" class="results"><div class="empty-state">运行一次筛选后，候选人会在这里按匹配度排列。</div></div>
+    <section id="candidates" class="candidates-section story-section reveal">
+      <div class="results-title"><div><p class="eyebrow">03 / REVIEW</p><h2>候选人队列 <span id="result-meta"></span></h2></div><button id="export-btn" class="button outline" disabled>写入飞书多维表格 <span>↗</span></button></div>
+      <div id="results" class="results"><div class="empty-state">运行一次筛选后，候选人会在这里按匹配度抵达。<span>下一步由 HR 决定。</span></div></div>
     </section>
 
-    <section id="pipeline" class="pipeline-section">
-      <div class="results-title"><div><p class="eyebrow">04 / PIPELINE</p><h2>招聘流程 <span id="pipeline-meta"></span></h2></div><div class="notification-actions"><button id="summary-btn" class="button outline">发送每日汇总</button><button id="overdue-btn" class="button outline">检查超时简历</button></div></div>
+    <section id="pipeline" class="pipeline-section story-section reveal">
+      <div class="results-title"><div><p class="eyebrow">04 / PIPELINE</p><h2>每一次推进，都留下轨迹 <span id="pipeline-meta"></span></h2></div><div class="notification-actions"><button id="summary-btn" class="button outline">发送每日汇总</button><button id="overdue-btn" class="button outline">检查超时简历</button></div></div>
       <div id="pipeline-board" class="pipeline-board"><div class="empty-state">筛选产生候选人后，这里将显示从复核到 Offer 的完整进度。</div></div>
     </section>
 
-    <section id="activity" class="activity-section"><div class="section-label"><span>05 / TRACE</span><h2>运行记录</h2></div><div id="activity-log" class="activity-log"><div class="empty-state">还没有运行记录。</div></div></section>
+    <section id="activity" class="activity-section story-section reveal"><div class="section-label"><span>05 / TRACE</span><h2>系统正在记住发生的一切</h2><p>可追溯的自动化，才值得被信任。</p></div><div id="activity-log" class="activity-log"><div class="empty-state">还没有运行记录。</div></div></section>
   </main>
+
   <dialog id="schedule-dialog" class="schedule-dialog">
     <form id="schedule-form" method="dialog">
-      <div class="dialog-head"><div><p class="eyebrow">INTERVIEW / SCHEDULE</p><h2>安排面试</h2></div><button type="button" id="close-schedule" class="close-button">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">INTERVIEW / SCHEDULE</p><h2>安排面试</h2></div><button type="button" id="close-schedule" class="close-button" aria-label="关闭">×</button></div>
       <input id="schedule-candidate-id" type="hidden" /><p id="schedule-candidate-name" class="dialog-candidate"></p>
       <div class="form-grid"><label>面试轮次<select id="interview-round"><option>一面</option><option>二面</option><option>终面</option></select></label><label>地点 / 会议链接<input id="interview-location" value="线上" /></label><label>开始时间<input id="interview-start" type="datetime-local" required /></label><label>结束时间<input id="interview-end" type="datetime-local" required /></label></div>
       <label>面试官飞书 Open ID <span>多个 ID 用英文逗号分隔，用于提醒</span><input id="interviewer-ids" placeholder="ou_xxx, ou_yyy" /></label>
-      <label>面试备注<textarea id="interview-note" rows="3" placeholder="考察重点、会议说明等"></textarea></label>
+      <label>面试备注<textarea id="interview-note" rows="3" placeholder="考察重点、会议信息等"></textarea></label>
       <div class="dialog-foot"><span>配置飞书日历后会同步创建日程；未配置时仅保存本地排期。</span><button class="button signal" value="default">确认安排</button></div>
     </form>
   </dialog>
