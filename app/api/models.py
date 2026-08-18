@@ -20,6 +20,30 @@ class BitableExportRequest(BaseModel):
     job_name: str
 
 
+class CandidateActionRequest(BaseModel):
+    action: str
+    owner_id: Optional[str] = None
+
+
+class InterviewCreateRequest(BaseModel):
+    candidate_id: str
+    round_name: str
+    interviewer_ids: List[str] = []
+    start_at: datetime
+    end_at: datetime
+    location: str = "线上"
+    note: str = ""
+
+
+class InterviewFeedbackRequest(BaseModel):
+    status: str
+    feedback: str = ""
+
+
+class OfferUpdateRequest(BaseModel):
+    status: str
+
+
 class QueryResponse(BaseModel):
     """筛选查询响应模型"""
     query_id: str
