@@ -88,6 +88,7 @@ def _create_local_embeddings(embedding_model: Optional[str] = None):
         or getattr(settings, "EMBEDDING_DEFAULT_LOCAL_MODEL", "BAAI/bge-small-zh-v1.5")
     )
     device = getattr(settings, "EMBEDDING_DEVICE", "cpu") or "cpu"
+    offline = getattr(settings, "LOCAL_EMBEDDING_OFFLINE", True)
 
     try:
         from langchain_huggingface import HuggingFaceEmbeddings
@@ -102,7 +103,7 @@ def _create_local_embeddings(embedding_model: Optional[str] = None):
         "model_name": model_name,
         # 余弦相似度检索场景统一做 L2 归一化
         "encode_kwargs": {"normalize_embeddings": True},
-        "model_kwargs": {"device": device},
+        "model_kwargs": {"device": device, "local_files_only": offline},
     }
     cache_folder = getattr(settings, "LOCAL_EMBEDDING_CACHE_DIR", "")
     if cache_folder:
@@ -116,6 +117,7 @@ def _create_local_embeddings(embedding_model: Optional[str] = None):
     logger.info(
         f"Initialized local HuggingFaceEmbeddings with model: {model_name}, device: {device}"
         + (f", cache: {cache_folder}" if cache_folder else "")
+        + (", offline-only" if offline else "")
         + (f", query_instruction: {query_instruction!r}" if query_instruction else "")
         + " (dimension auto-detected)"
     )
