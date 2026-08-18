@@ -27,3 +27,8 @@ env/
 # IDE
 .idea/
 .vscode/
+
+# build
+dist/
+build/
+*.spec
