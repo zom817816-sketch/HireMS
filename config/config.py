@@ -110,5 +110,20 @@ class Settings:
     # 日志级别
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # ---- 飞书邮箱 / 多维表格 ----
+    MAIL_IMAP_HOST: str = os.getenv("MAIL_IMAP_HOST", "")
+    MAIL_IMAP_PORT: int = int(os.getenv("MAIL_IMAP_PORT", "993"))
+    MAIL_IMAP_USER: str = os.getenv("MAIL_IMAP_USER", "")
+    MAIL_IMAP_PASSWORD: str = os.getenv("MAIL_IMAP_PASSWORD", "")
+    MAIL_IMAP_FOLDER: str = os.getenv("MAIL_IMAP_FOLDER", "INBOX")
+    MAIL_SUBJECT_KEYWORDS: str = os.getenv("MAIL_SUBJECT_KEYWORDS", "简历,应聘,求职")
+    MAIL_LOOKBACK_DAYS: int = int(os.getenv("MAIL_LOOKBACK_DAYS", "7"))
+
+    FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")
+    FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
+    FEISHU_BITABLE_APP_TOKEN: str = os.getenv("FEISHU_BITABLE_APP_TOKEN", "")
+    FEISHU_BITABLE_TABLE_ID: str = os.getenv("FEISHU_BITABLE_TABLE_ID", "")
+    FEISHU_EXPORT_MIN_SCORE: float = float(os.getenv("FEISHU_EXPORT_MIN_SCORE", "0.70"))
+
 
 settings = Settings()
