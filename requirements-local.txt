@@ -1,0 +1,6 @@
+# 本地轻量 Embedding 可选依赖（EMBEDDING_PROVIDER=local 时需要）
+# 说明：sentence-transformers 会引入 torch，下载体积较大（CPU 版约 200MB+）。
+# 默认模型 BAAI/bge-small-zh-v1.5 首次运行时自动从 HuggingFace 下载（约 95MB），
+# 之后走本地缓存，完全离线运行。
+langchain-huggingface
+sentence-transformers

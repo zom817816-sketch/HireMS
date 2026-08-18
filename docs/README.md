@@ -201,14 +201,17 @@ cp .env.example .env
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
+| `EMBEDDING_PROVIDER` | 嵌入后端：`openai`（OpenAI 兼容 API）/ `local`（本地轻量模型） | `openai` |
 | `LLM_API_KEY` | 对话模型 API Key | — |
 | `LLM_BASE_URL` | 对话模型 Base URL（OpenAI 兼容） | — |
 | `LLM_MODEL` | 对话模型名 | `gpt-4o` |
 | `LLM_TEMPERATURE` | 采样温度 | `0.0` |
 | `EMBEDDING_API_KEY` | 向量模型 Key（缺省回退 `LLM_*` / `OPENAI_*`） | — |
 | `EMBEDDING_BASE_URL` | 向量模型 Base URL | — |
-| `EMBEDDING_MODEL` | 向量模型名 | `text-embedding-3-small` |
-| `EMBEDDING_DIMENSIONS` | 向量维度（智谱 embedding-3 支持 256~2048） | `2048` |
+| `EMBEDDING_MODEL` | 向量模型名 | `text-embedding-3-small`（local 后端默认 `BAAI/bge-small-zh-v1.5`） |
+| `EMBEDDING_DIMENSIONS` | 向量维度（仅 openai 后端生效；智谱 embedding-3 支持 256~2048） | `2048` |
+| `EMBEDDING_DEVICE` | local 后端运行设备（`cpu` / `cuda` / `mps`） | `cpu` |
+| `EMBEDDING_QUERY_INSTRUCTION` | local 后端检索查询前缀（bge 中文系列推荐） | 空 |
 | `VECTOR_DB` | 向量库后端：`chroma` / `milvus` | `chroma` |
 | `CHROMA_PERSIST_DIR` | ChromaDB 持久化目录 | `./chroma_db` |
 | `MILVUS_URI` | Milvus/Zilliz 完整连接 URI（优先级最高） | — |
@@ -238,6 +241,42 @@ VECTOR_DB=chroma
 > **兼容性**：如果未设置 `LLM_*` / `EMBEDDING_*`，系统会回退到统一的 `OPENAI_API_KEY` / `OPENAI_BASE_URL`。
 
 > ⚠️ **向量维度一致性**：`EMBEDDING_DIMENSIONS` 必须与向量库已存数据维度一致。**切换维度后必须重建集合**（删除 `CHROMA_PERSIST_DIR` 目录，或删除 Milvus 集合），否则检索会报维度不匹配。
+
+---
+
+## 🤏 使用本地轻量 Embedding 模型
+
+不想到云端调 embedding API？内置 `EMBEDDING_PROVIDER=local` 后端，用本地 sentence-transformers 轻量模型在进程内完成向量化，**无需任何 API Key，完全离线**（首次下载模型需联网）。
+
+### 1) 安装可选依赖
+
+```bash
+pip install -r requirements-local.txt   # langchain-huggingface + sentence-transformers（含 torch）
+```
+
+### 2) 修改 `.env`
+
+```env
+EMBEDDING_PROVIDER=local
+# 默认即 BAAI/bge-small-zh-v1.5（512 维 / 约 95MB / 中文友好，CPU 可跑），可换任意 sentence-transformers 模型
+EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+EMBEDDING_DEVICE=cpu
+# bge 中文系列推荐的检索查询前缀（可选）
+EMBEDDING_QUERY_INSTRUCTION=为这个句子生成表示以用于检索相关文章：
+```
+
+### 3) 清空旧向量库并重启
+
+```bash
+rm -rf ./chroma_db     # 或删除 Milvus 集合；切换 embedding 模型后必须重建
+uvicorn app.main:app --reload --port 8000
+```
+
+**说明：**
+
+- local 后端忽略 `EMBEDDING_DIMENSIONS`——维度由模型自动决定（Chroma 自动适配；Milvus 后端会在建集合前自动探测维度）。
+- 推荐模型：`BAAI/bge-small-zh-v1.5`（512 维，最快）、`BAAI/bge-large-zh-v1.5`（1024 维，更准更慢）、`Qwen3-Embedding-0.6B`（1024 维，效果最好，建议 GPU）。
+- 对话 LLM（简历抽取、查询解析、候选人分析）仍走 `LLM_*` 的 API 配置，不受影响。
 
 ---
 
@@ -502,7 +541,7 @@ python milvus_live_test.py
 ## ❓ 常见问题 FAQ
 
 **Q：启动报 `EMBEDDING_API_KEY ... is not set`？**
-A：`.env` 未配置或未被加载。确认在 `resume_screening/` 目录下存在 `.env` 并填写了 `EMBEDDING_API_KEY`（或 `LLM_API_KEY` / `OPENAI_API_KEY` 作为回退）。
+A：`.env` 未配置或未被加载。确认在 `resume_screening/` 目录下存在 `.env` 并填写了 `EMBEDDING_API_KEY`（或 `LLM_API_KEY` / `OPENAI_API_KEY` 作为回退）。若想完全不用 API Key，可改用本地嵌入后端：`EMBEDDING_PROVIDER=local`（见上文章节）。
 
 **Q：检索报维度不匹配 / dimension mismatch？**
 A：`EMBEDDING_DIMENSIONS` 与已存数据维度不一致。删除 `CHROMA_PERSIST_DIR` 目录（或删除 Milvus 集合）后重新上传简历。
