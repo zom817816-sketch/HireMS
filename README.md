@@ -59,6 +59,19 @@ python -m uvicorn app.main:app --reload --port 8000
 
 打开 <http://127.0.0.1:8000/>。接口文档位于 <http://127.0.0.1:8000/docs>。
 
+### 大规模候选人筛选
+
+筛选会先从全部已入库简历的向量索引中召回最相关的候选池，再执行经验、学历、技能、地点等硬过滤与评分；只有评分靠前的候选人才会调用 LLM 生成评价。默认配置为“召回 50 份、分析前 10 份”，因此不会对所有简历逐份调用 LLM。
+
+```env
+SCREENING_RETRIEVAL_LIMIT=50
+SCREENING_ANALYSIS_LIMIT=10
+CANDIDATE_ANALYSIS_MAX_TOKENS=360
+CANDIDATE_ANALYSIS_MAX_CHARS=260
+```
+
+候选池较大时可将 `SCREENING_RETRIEVAL_LIMIT` 调至 100～200；若响应时间或成本更重要，则优先下调 `SCREENING_ANALYSIS_LIMIT`。每份 AI 评价会被限制为四条简短要点，并在本地兜底截断，避免队列卡片显示半截报告。
+
 ## HR 使用流程
 
 1. 在“收件与入库”中同步邮箱或手动导入简历。
