@@ -85,6 +85,18 @@ class TestMetadataExtractor:
             with pytest.raises(ValueError):
                 extractor._parse_response(response)
 
+    def test_resume_metadata_normalizes_null_list_fields(self):
+        """LLM 返回 null 列表字段时，简历仍应能入库。"""
+        metadata = ResumeMetadata(
+            name="测试候选人",
+            skills=None,
+            work_experience=None,
+            preferred_locations=None,
+        )
+        assert metadata.skills == []
+        assert metadata.work_experience == []
+        assert metadata.preferred_locations == []
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
