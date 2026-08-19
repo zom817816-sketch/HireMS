@@ -75,6 +75,14 @@ class TestCandidateAnalyzer:
         
         # 验证LLM客户端被调用
         mock_llm_client.generate_text.assert_called_once()
+        assert mock_llm_client.generate_text.call_args.kwargs["max_tokens"] > 0
+
+    def test_report_is_trimmed_at_sentence_boundary(self):
+        report = "匹配度较高。亮点是后端经验。风险是缺少领域经验。建议进入一面并核实项目细节。"
+        bounded = CandidateAnalyzer._limit_report(report, 18)
+
+        assert len(bounded) <= 19
+        assert bounded.endswith(("。", "…"))
 
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key", "OPENAI_BASE_URL": "https://test.url/v1"})
     @patch("app.core.analyzer.LLMClient")
