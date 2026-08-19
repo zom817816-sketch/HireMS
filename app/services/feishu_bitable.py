@@ -24,11 +24,31 @@ class FeishuBitableWriter:
             json={"app_id": settings.FEISHU_APP_ID, "app_secret": settings.FEISHU_APP_SECRET},
             timeout=15,
         )
-        response.raise_for_status()
         data = response.json()
+        if response.status_code == 403:
+            raise PermissionError("飞书拒绝应用访问。请检查自建应用的凭证与可用范围。")
+        response.raise_for_status()
         if data.get("code", 0) != 0 or not data.get("tenant_access_token"):
             raise RuntimeError(data.get("msg", "获取飞书 tenant_access_token 失败"))
         return data["tenant_access_token"]
+
+    @staticmethod
+    def _raise_bitable_write_error(response: httpx.Response) -> None:
+        """Raise an actionable error while keeping Feishu response details out of logs/UI."""
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        code = data.get("code")
+        message = str(data.get("msg") or "")
+        if response.status_code == 403 or code == 1254302 or "permission" in message.lower():
+            raise PermissionError(
+                "飞书拒绝写入多维表格（403）。请在目标多维表格中通过“…”→“添加文档应用”"
+                "添加此自建应用，并授予可编辑或可管理权限；同时确认应用已开通多维表格读写权限。"
+            )
+        if response.is_error or code not in (None, 0):
+            detail = message or f"HTTP {response.status_code}"
+            raise RuntimeError(f"飞书多维表格写入失败：{detail}")
 
     def write_candidates(self, candidates: list[dict[str, Any]], job_name: str) -> int:
         if not self.configured():
@@ -53,9 +73,11 @@ class FeishuBitableWriter:
         token = self._token()
         url = (f"{self.base_url}/bitable/v1/apps/{settings.FEISHU_BITABLE_APP_TOKEN}"
                f"/tables/{settings.FEISHU_BITABLE_TABLE_ID}/records/batch_create")
-        response = httpx.post(url, headers={"Authorization": f"Bearer {token}"}, json={"records": records}, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("code", 0) != 0:
-            raise RuntimeError(data.get("msg", "写入飞书多维表格失败"))
+        response = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"records": records},
+            timeout=30,
+        )
+        self._raise_bitable_write_error(response)
         return len(records)

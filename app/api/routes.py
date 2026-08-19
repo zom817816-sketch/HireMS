@@ -500,6 +500,9 @@ async def export_to_bitable(request: BitableExportRequest):
         return {"exported": count, "message": f"已写入 {count} 条候选人记录"}
     except HTTPException:
         raise
+    except PermissionError as e:
+        ops_store.log("bitable_export", "blocked", str(e))
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         ops_store.log("bitable_export", "blocked", str(e))
         raise HTTPException(status_code=400, detail=str(e))
