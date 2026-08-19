@@ -57,17 +57,21 @@ class FeishuBitableWriter:
         for candidate in candidates:
             if float(candidate.get("overall_score", 0)) < settings.FEISHU_EXPORT_MIN_SCORE:
                 continue
-            records.append({"fields": {
+            fields = {
                 "姓名": candidate.get("name") or "未知",
                 "邮箱": candidate.get("email") or "",
-                "电话": candidate.get("phone") or "",
                 "岗位": job_name,
                 "匹配度": round(float(candidate.get("overall_score", 0)) * 100),
                 "技能": ", ".join(candidate.get("skills") or []),
                 "期望地点": ", ".join(candidate.get("preferred_locations") or []),
                 "AI分析": candidate.get("analysis") or "",
                 "处理状态": "待复核",
-            }})
+            }
+            # 飞书“电话号码”字段不能接收空字符串；字段缺失则保持为空。
+            phone = candidate.get("phone")
+            if phone:
+                fields["电话"] = str(phone)
+            records.append({"fields": fields})
         if not records:
             return 0
         token = self._token()

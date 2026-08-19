@@ -144,6 +144,23 @@ class IntakeStore:
                 raise KeyError(candidate_id)
         return self.get_candidate(candidate_id)  # type: ignore[return-value]
 
+    def delete_candidate(self, candidate_id: str) -> dict:
+        """Remove a candidate's local workflow, interview, and notification records."""
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM candidate_workflow WHERE candidate_id = ?", (candidate_id,)
+            ).fetchone()
+            if not exists:
+                raise KeyError(candidate_id)
+            interview_count = conn.execute(
+                "DELETE FROM interview WHERE candidate_id = ?", (candidate_id,)
+            ).rowcount
+            notification_count = conn.execute(
+                "DELETE FROM notification_log WHERE candidate_id = ?", (candidate_id,)
+            ).rowcount
+            conn.execute("DELETE FROM candidate_workflow WHERE candidate_id = ?", (candidate_id,))
+        return {"interviews": interview_count, "notifications": notification_count}
+
     def create_interview(self, interview: dict) -> dict:
         now = datetime.now().isoformat(timespec="seconds")
         with self._connect() as conn:

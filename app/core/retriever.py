@@ -51,6 +51,15 @@ class Retriever:
             logger.error(f"Failed to add resume {resume_id} to vector store: {e}")
             raise
 
+    def remove_resume(self, resume_id: str) -> None:
+        """Permanently remove one resume from the vector index."""
+        try:
+            self.vector_store_manager.delete_documents("resumes", [resume_id])
+            logger.info(f"Removed resume {resume_id} from vector store")
+        except Exception as e:
+            logger.error(f"Failed to remove resume {resume_id} from vector store: {e}")
+            raise
+
     def retrieve(self, query_metadata: QueryMetadata, n_results: int = 10) -> List[Dict[str, Any]]:
         """
         根据查询元数据检索相关简历

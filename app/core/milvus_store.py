@@ -192,6 +192,18 @@ class MilvusVectorStoreManager:
             logger.error(f"Failed to add documents to Milvus collection {collection_name}: {e}")
             raise
 
+    def delete_documents(self, collection_name: str, ids: List[str]) -> None:
+        """Delete documents by primary key while keeping the shared collection intact."""
+        if not ids:
+            return
+        self.get_collection(collection_name)
+        try:
+            self.client.delete(collection_name=collection_name, ids=[str(item) for item in ids])
+            logger.info(f"Deleted {len(ids)} documents from Milvus collection: {collection_name}")
+        except Exception as e:
+            logger.error(f"Failed to delete documents from Milvus collection {collection_name}: {e}")
+            raise
+
     def query_collection(
         self,
         collection_name: str,

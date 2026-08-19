@@ -356,6 +356,36 @@ async def update_candidate_action(candidate_id: str, request: CandidateActionReq
         raise HTTPException(status_code=404, detail="候选人不存在")
 
 
+@router.delete("/workflow/candidates/{candidate_id}")
+async def delete_workflow_candidate(candidate_id: str):
+    """Permanently remove one candidate from this machine's recruitment data."""
+    candidate = ops_store.get_candidate(candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="候选人不存在或已被删除")
+
+    synced_interviews = [
+        interview for interview in ops_store.list_interviews(candidate_id)
+        if interview.get("calendar_event_id")
+    ]
+    if synced_interviews:
+        raise HTTPException(
+            status_code=409,
+            detail="该候选人存在已同步到飞书日历的面试，请先在飞书取消日程后再删除本地候选人。",
+        )
+
+    try:
+        await run_in_threadpool(retriever.remove_resume, candidate_id)
+        deleted = ops_store.delete_candidate(candidate_id)
+        resume_storage.pop(candidate_id, None)
+        ops_store.log("candidate_delete", "success", f"已删除本地候选人：{candidate.get('name') or candidate_id}")
+        return {"deleted": True, "candidate_id": candidate_id, "cleanup": deleted}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="候选人不存在或已被删除")
+    except Exception:
+        logger.exception("删除本地候选人失败")
+        raise HTTPException(status_code=500, detail="删除候选人失败，本地数据未完全清理，请稍后重试。")
+
+
 @router.post("/workflow/interviews")
 async def schedule_interview(request: InterviewCreateRequest):
     if request.end_at <= request.start_at:

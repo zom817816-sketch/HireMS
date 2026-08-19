@@ -2,6 +2,7 @@ const API = "/api/v1";
 const $ = (id) => document.getElementById(id);
 let lastQueryId = null;
 let workflowCandidates = [];
+let currentResults = [];
 let toastTimer = null;
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#039;",'"':"&quot;"}[char]));
@@ -132,11 +133,12 @@ function setupFileIntake() {
 }
 
 function actionsFor(candidate) {
-  return `<div class="candidate-actions"><button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排面试</button></div>`;
+  return `<div class="candidate-actions"><button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排面试</button><button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button></div>`;
 }
 
 function renderResults(data) {
   const candidates = data.candidates || [];
+  currentResults = candidates;
   $("result-meta").textContent = `${candidates.length} 位匹配候选人`;
   $("export-btn").disabled = !candidates.length;
   $("results").innerHTML = candidates.length ? candidates.map((candidate, index) => {
@@ -171,11 +173,12 @@ async function runQuery() {
 
 const lane = (status) => status === "待复核" ? "待复核" : ["通过", "安排面试", "面试中"].includes(status) ? "面试流程" : status.startsWith("Offer") ? "Offer" : "已淘汰";
 function pipelineActions(candidate) {
-  if (candidate.status === "待复核") return `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">面试</button>`;
-  if (["通过", "安排面试", "面试中"].includes(candidate.status)) return `<button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排轮次</button><button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_pending">转 Offer</button>`;
-  if (candidate.status === "Offer待发") return `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_sent">已发 Offer</button>`;
-  if (candidate.status === "Offer已发") return `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_accepted">接受</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="offer_rejected">拒绝</button>`;
-  return "";
+  let actions = "";
+  if (candidate.status === "待复核") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">面试</button>`;
+  else if (["通过", "安排面试", "面试中"].includes(candidate.status)) actions = `<button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排轮次</button><button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_pending">转 Offer</button>`;
+  else if (candidate.status === "Offer待发") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_sent">已发 Offer</button>`;
+  else if (candidate.status === "Offer已发") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_accepted">接受</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="offer_rejected">拒绝</button>`;
+  return `${actions}<button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button>`;
 }
 
 function renderPipeline() {
@@ -192,8 +195,23 @@ async function loadPipeline() {
 
 async function candidateAction(id, action) {
   if (action === "schedule") return openSchedule(id);
+  if (action === "delete") return deleteCandidate(id);
   try { await request(`${API}/workflow/candidates/${id}/action`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action})}); notify("候选人状态已推进"); await Promise.all([loadPipeline(), loadStatus()]); }
   catch (error) { notify(`更新失败：${error.message}`); }
+}
+
+async function deleteCandidate(id) {
+  const candidate = workflowCandidates.find((item) => item.id === id) || currentResults.find((item) => item.id === id);
+  const name = candidate?.name || "该候选人";
+  const message = `确定从本地候选人库删除“${name}”吗？\n\n这会清除简历向量、流程、面试与通知记录，且无法恢复。已写入飞书多维表格的历史行不会自动删除。`;
+  if (!window.confirm(message)) return;
+  try {
+    await request(`${API}/workflow/candidates/${id}`, {method: "DELETE"});
+    currentResults = currentResults.filter((item) => item.id !== id);
+    renderResults({candidates: currentResults});
+    notify(`已从本地删除 ${name}`);
+    await Promise.all([loadPipeline(), loadStatus(), loadResumes()]);
+  } catch (error) { notify(`删除失败：${error.message}`); }
 }
 
 function localDatetime(date) { const p = (n) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; }
