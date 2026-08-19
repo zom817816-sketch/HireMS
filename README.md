@@ -41,9 +41,9 @@ Copy-Item .env.example .env
 编辑 `.env`，至少配置 LLM 与 Embedding：
 
 ```env
-LLM_API_KEY=你的密钥
-LLM_BASE_URL=https://你的兼容接口/v1
-LLM_MODEL=你的模型名
+HIREMS_LLM_API_KEY=你的密钥
+HIREMS_LLM_BASE_URL=https://你的兼容接口/v1
+HIREMS_LLM_MODEL=你的模型名
 
 EMBEDDING_API_KEY=你的密钥
 EMBEDDING_BASE_URL=https://你的兼容接口/v1

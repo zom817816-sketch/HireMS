@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import date
 
@@ -14,34 +14,43 @@ class ResumeMetadata(BaseModel):
     address: Optional[str] = None
     
     # 工作经历
-    work_experience: List[Dict[str, Any]] = []
+    work_experience: List[Dict[str, Any]] = Field(default_factory=list)
     
     # 教育背景
-    education: List[Dict[str, Any]] = []
+    education: List[Dict[str, Any]] = Field(default_factory=list)
     
     # 技能
-    skills: List[str] = []
+    skills: List[str] = Field(default_factory=list)
     
     # 项目经历
-    projects: List[Dict[str, Any]] = []
+    projects: List[Dict[str, Any]] = Field(default_factory=list)
     
     # 语言能力
-    languages: List[str] = []
+    languages: List[str] = Field(default_factory=list)
     
     # 证书
-    certifications: List[str] = []
+    certifications: List[str] = Field(default_factory=list)
     
     # 期望薪资
     expected_salary: Optional[str] = None
     
     # 期望工作地点
-    preferred_locations: List[str] = []
+    preferred_locations: List[str] = Field(default_factory=list)
     
     # 个人简介
     summary: Optional[str] = None
     
     # 其他信息
     additional_info: Optional[str] = None
+
+    @field_validator(
+        "work_experience", "education", "skills", "projects", "languages",
+        "certifications", "preferred_locations", mode="before"
+    )
+    @classmethod
+    def normalize_null_lists(cls, value: Any) -> Any:
+        """LLMs often return null for an unknown array field; use an empty list instead."""
+        return [] if value is None else value
 
 
 class QueryMetadata(BaseModel):

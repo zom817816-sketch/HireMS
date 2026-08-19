@@ -109,7 +109,7 @@ def _friendly_ingest_error(error: Exception) -> tuple[int, str]:
     message = str(error).lower()
     if any(token in message for token in ("connection error", "connecterror", "timeout", "network")):
         return 502, (
-            "无法连接 LLM 服务，简历尚未入库。请检查 LLM_BASE_URL、LLM_API_KEY、"
+            "无法连接 LLM 服务，简历尚未入库。请检查 HIREMS_LLM_BASE_URL、HIREMS_LLM_API_KEY、"
             "网络/代理设置，以及模型名称是否与方舟接口类型匹配。"
         )
     if any(token in message for token in ("embedding", "chromadb", "vector", "collection")):

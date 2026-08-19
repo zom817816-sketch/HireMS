@@ -9,9 +9,14 @@
 """
 import os
 
+_DOTENV_VALUES: dict[str, str] = {}
+
 # 加载 .env 文件（如果安装了 python-dotenv 且存在 .env）
 try:
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values, load_dotenv
+    _DOTENV_VALUES = {
+        key: value for key, value in dotenv_values().items() if value is not None
+    }
     load_dotenv()
 except Exception:  # pragma: no cover - python-dotenv 未安装时静默跳过
     pass
@@ -26,6 +31,29 @@ def _first_env(*names: str, default: str = "") -> str:
     return default
 
 
+def _first_hirems_llm_env(*legacy_names: str, default: str = "") -> str:
+    """Prefer project-scoped variables and the local .env over inherited generic LLM_* values.
+
+    Desktop launches may inherit `LLM_BASE_URL` from another AI tool.  Those generic
+    variables must not silently override the HireMS .env configuration.
+    """
+    project_name_map = {
+        "LLM_API_KEY": "HIREMS_LLM_API_KEY",
+        "LLM_BASE_URL": "HIREMS_LLM_BASE_URL",
+        "LLM_MODEL": "HIREMS_LLM_MODEL",
+        "LLM_TEMPERATURE": "HIREMS_LLM_TEMPERATURE",
+    }
+    for legacy_name in legacy_names:
+        project_name = project_name_map.get(legacy_name)
+        if project_name and os.getenv(project_name):
+            return os.getenv(project_name, "")
+    for legacy_name in legacy_names:
+        value = _DOTENV_VALUES.get(legacy_name)
+        if value:
+            return value
+    return _first_env(*legacy_names, default=default)
+
+
 class Settings:
     """应用配置项"""
 
@@ -34,12 +62,13 @@ class Settings:
     OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
 
     # ---- LLM（对话）----
-    # 优先 LLM_*，回退到 OPENAI_*
-    LLM_API_KEY: str = _first_env("LLM_API_KEY", "OPENAI_API_KEY")
-    LLM_BASE_URL = _first_env("LLM_BASE_URL", "OPENAI_BASE_URL") or None
+    # 优先 HIREMS_LLM_*；兼容现有 .env 中的 LLM_* 与 OPENAI_*。
+    # 本地 .env 的旧 LLM_* 配置也优先于父进程中继承的同名变量。
+    LLM_API_KEY: str = _first_hirems_llm_env("LLM_API_KEY", "OPENAI_API_KEY")
+    LLM_BASE_URL = _first_hirems_llm_env("LLM_BASE_URL", "OPENAI_BASE_URL") or None
     # 兼容用户可能写成 LL_MODEL 的拼写
-    LLM_MODEL: str = _first_env("LLM_MODEL", "LL_MODEL", default="gpt-4o")
-    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.0"))
+    LLM_MODEL: str = _first_hirems_llm_env("LLM_MODEL", "LL_MODEL", default="gpt-4o")
+    LLM_TEMPERATURE: float = float(_first_hirems_llm_env("LLM_TEMPERATURE", default="0.0"))
 
     # ---- Embedding（向量化）----
     # 优先 EMBEDDING_*，回退到 LLM_* / OPENAI_*

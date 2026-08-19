@@ -3,7 +3,6 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-import os
 from loguru import logger
 from config.config import settings
 
@@ -25,11 +24,13 @@ class LLMClient:
         temperature = settings.LLM_TEMPERATURE if temperature is None else temperature
 
         # 获取 LLM 的 API 密钥和基础 URL（环境变量优先，回退到配置）
-        api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or settings.LLM_API_KEY
-        base_url = os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_BASE_URL") or settings.LLM_BASE_URL
+        # Always use the resolved HireMS settings.  Reading generic process-level
+        # LLM_* variables here would bypass the project-specific collision guard.
+        api_key = settings.LLM_API_KEY
+        base_url = settings.LLM_BASE_URL
 
         if not api_key:
-            raise ValueError("LLM_API_KEY (or OPENAI_API_KEY) environment variable is not set")
+            raise ValueError("HIREMS_LLM_API_KEY (or compatible LLM_API_KEY) environment variable is not set")
         
         # 初始化模型
         self.model = ChatOpenAI(
