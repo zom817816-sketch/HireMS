@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 from app.core.llm_client import LLMClient
 from app.models.metadata import ResumeMetadata, QueryMetadata
+from config.config import settings
 from loguru import logger
 
 
@@ -45,7 +46,10 @@ class CandidateAnalyzer:
             prompt = self._create_analysis_prompt(resume, query_metadata)
             
             # 使用LLM生成分析结果
-            analysis = self.llm_client.generate_text(prompt)
+            analysis = self.llm_client.generate_text(
+                prompt, max_tokens=settings.CANDIDATE_ANALYSIS_MAX_TOKENS
+            )
+            analysis = self._limit_report(analysis, settings.CANDIDATE_ANALYSIS_MAX_CHARS)
             
             # 创建包含分析结果的候选人数据
             candidate = resume.copy()
@@ -131,17 +135,28 @@ class CandidateAnalyzer:
 3. 最少经验年限: {min_experience_years if min_experience_years else "无要求"}
 4. 学历要求: {required_education if required_education else "无要求"}
 
-请从以下几个维度对候选人进行评价:
-1. 技能匹配度: 候选人的技能与职位要求的匹配程度
-2. 经验匹配度: 候选人的工作经验与职位要求的匹配程度
-3. 教育背景匹配度: 候选人的教育背景与职位要求的匹配程度
-4. 综合优势: 候选人的突出优势
-5. 潜在风险: 候选人可能存在的不足或风险
-6. 推荐建议: 是否推荐该候选人进入下一轮面试，以及相关建议
+请只用中文输出 4 条简洁要点，不要标题、前言、表格或复述简历：
+- 匹配：技能、经验和学历的核心匹配结论；
+- 亮点：最值得关注的一项优势；
+- 风险：一项需 HR 核实的缺口；
+- 建议：推荐/谨慎推荐/不推荐及下一步。
 
-请用中文输出一份结构清晰、内容详实的候选人评价报告。
+总长度必须不超过 {settings.CANDIDATE_ANALYSIS_MAX_CHARS} 个中文字符（含标点）。
 """
         return prompt
+
+    @staticmethod
+    def _limit_report(report: Any, max_chars: int) -> str:
+        """Keep a card-ready report complete even if an upstream model ignores its limit."""
+        text = str(report or "").strip()
+        if len(text) <= max_chars:
+            return text
+
+        clipped = text[:max_chars].rstrip()
+        sentence_end = max(clipped.rfind(mark) for mark in ("。", "！", "？", "\n"))
+        if sentence_end >= max_chars // 2:
+            clipped = clipped[:sentence_end + 1].rstrip()
+        return f"{clipped.rstrip('，；、:：')}…"
 
     def _format_work_experience(self, work_experience: List[Dict[str, Any]]) -> str:
         """

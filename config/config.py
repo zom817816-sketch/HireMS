@@ -54,6 +54,14 @@ def _first_hirems_llm_env(*legacy_names: str, default: str = "") -> str:
     return _first_env(*legacy_names, default=default)
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    """Read a positive integer setting without making a bad .env value fatal."""
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
 class Settings:
     """应用配置项"""
 
@@ -104,6 +112,14 @@ class Settings:
     # 选择向量库后端：chroma（默认，本地持久化）/ milvus（Milvus/Zilliz Cloud）
     VECTOR_DB: str = os.getenv("VECTOR_DB", "chroma").lower()
     CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+
+    # ---- 筛选规模与候选人报告 ----
+    # 先从整个向量库召回候选池，再进行规则过滤/评分；只有最终靠前的候选人会调用 LLM 生成报告。
+    SCREENING_RETRIEVAL_LIMIT: int = _positive_int_env("SCREENING_RETRIEVAL_LIMIT", 50)
+    SCREENING_ANALYSIS_LIMIT: int = _positive_int_env("SCREENING_ANALYSIS_LIMIT", 10)
+    # 单份报告同时使用服务端 token 上限和本地字符上限，避免卡片出现不完整长文。
+    CANDIDATE_ANALYSIS_MAX_TOKENS: int = _positive_int_env("CANDIDATE_ANALYSIS_MAX_TOKENS", 360)
+    CANDIDATE_ANALYSIS_MAX_CHARS: int = _positive_int_env("CANDIDATE_ANALYSIS_MAX_CHARS", 260)
 
     # ---- Milvus / Zilliz Cloud（当 VECTOR_DB=milvus 时生效）----
     # 优先使用完整 URI；若只提供 HOST/PORT 则自动拼接

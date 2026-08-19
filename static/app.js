@@ -6,7 +6,7 @@ let currentResults = [];
 let toastTimer = null;
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#039;",'"':"&quot;"}[char]));
-const stripMarkdown = (value) => String(value || "").replace(/[#*_`>-]/g, "").replace(/\n+/g, " ").slice(0, 190);
+const stripMarkdown = (value) => String(value || "").replace(/[#*_`>-]/g, "").replace(/\n+/g, " ");
 
 function notify(message) {
   const toast = $("toast");

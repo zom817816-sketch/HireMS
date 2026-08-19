@@ -42,7 +42,9 @@ class LLMClient:
         self.model_name = model_name
         logger.info(f"Initialized LLM client with model: {model_name}")
 
-    def generate_text(self, prompt: str, system_message: Optional[str] = None) -> str:
+    def generate_text(
+        self, prompt: str, system_message: Optional[str] = None, max_tokens: Optional[int] = None
+    ) -> str:
         """
         生成文本
         
@@ -62,7 +64,8 @@ class LLMClient:
             else:
                 messages = [HumanMessage(content=prompt)]
                 
-            response = self.model.invoke(messages)
+            model = self.model.bind(max_tokens=max_tokens) if max_tokens else self.model
+            response = model.invoke(messages)
             logger.debug(f"Generated text with {len(response.content)} characters")
             return response.content
         except Exception as e:

@@ -266,11 +266,17 @@ async def get_screening_results(query_id: str):
         query_data = query_storage[query_id]
         query_metadata = QueryMetadata(**query_data["metadata"])
 
-        retrieved_resumes = await run_in_threadpool(retriever.retrieve, query_metadata)
+        retrieved_resumes = await run_in_threadpool(
+            retriever.retrieve, query_metadata, settings.SCREENING_RETRIEVAL_LIMIT
+        )
         filtered_resumes = await run_in_threadpool(hard_filter.filter_resumes, retrieved_resumes, query_metadata)
         scored_resumes = await run_in_threadpool(scorer.score_resumes, filtered_resumes, query_metadata)
         ranked_resumes = await run_in_threadpool(ranker.rank_resumes, scored_resumes, query_metadata)
-        analyzed_candidates = await run_in_threadpool(candidate_analyzer.analyze_candidates, ranked_resumes, query_metadata)
+        analyzed_candidates = await run_in_threadpool(
+            candidate_analyzer.analyze_candidates,
+            ranked_resumes[:settings.SCREENING_ANALYSIS_LIMIT],
+            query_metadata,
+        )
         formatted_results = await run_in_threadpool(result_formatter.format_results, analyzed_candidates, query_metadata)
 
         candidates = []
