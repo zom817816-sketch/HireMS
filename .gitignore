@@ -34,3 +34,6 @@ env/
 dist/
 build/
 *.spec
+
+# docs
+docs/
