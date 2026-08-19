@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from app.core.llm_client import LLMClient
 from app.models.metadata import QueryMetadata
+from app.core.normalization import normalize_query
 from loguru import logger
 import json
 
@@ -41,7 +42,7 @@ class QueryParser:
             query_dict = self._parse_response(response)
             
             # 创建QueryMetadata对象
-            query_metadata = QueryMetadata(**query_dict)
+            query_metadata = QueryMetadata(**normalize_query(query_dict))
             
             logger.info(f"Parsed query: {query_metadata}")
             return query_metadata

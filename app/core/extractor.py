@@ -2,6 +2,7 @@ from typing import Dict, Any, List, Optional
 from app.core.llm_client import LLMClient
 from app.core.cache_manager import CacheManager
 from app.models.metadata import ResumeMetadata
+from app.core.normalization import normalize_resume_metadata
 from loguru import logger
 import json
 import hashlib
@@ -59,6 +60,7 @@ class MetadataExtractor:
             metadata_dict = self._parse_response(response)
             
             # 创建ResumeMetadata对象
+            metadata_dict = normalize_resume_metadata(metadata_dict, source_text=resume_text)
             metadata = ResumeMetadata(**metadata_dict)
             
             # 将结果存入缓存

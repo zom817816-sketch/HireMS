@@ -256,7 +256,7 @@ class Scorer:
         """
         计算地理位置匹配得分，使用模糊匹配（如“北京”命中“北京市”）。
         """
-        preferred_locations = [str(loc).lower() for loc in coerce_to_list(resume.get("metadata", {}).get("preferred_locations", []))]
+        preferred_locations = [str(loc).lower() for loc in coerce_to_list(resume.get("metadata", {}).get("location_city") or resume.get("metadata", {}).get("preferred_locations", []))]
         query_locations = [str(loc).lower() for loc in query_metadata.locations]
 
         if not query_locations:

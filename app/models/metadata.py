@@ -42,6 +42,14 @@ class ResumeMetadata(BaseModel):
     
     # 其他信息
     additional_info: Optional[str] = None
+    location_raw: List[str] = Field(default_factory=list)
+    location_city: List[str] = Field(default_factory=list)
+    location_codes: List[str] = Field(default_factory=list)
+    highest_degree_level: int = 0
+    full_time_education: Optional[bool] = None
+    age: Optional[int] = None
+    role_tags: List[str] = Field(default_factory=list)
+    industry_tags: List[str] = Field(default_factory=list)
 
     @field_validator(
         "work_experience", "education", "skills", "projects", "languages",
@@ -92,3 +100,7 @@ class QueryMetadata(BaseModel):
     
     # 其他自定义条件
     custom_conditions: Optional[str] = None
+    required_role_tags: List[str] = []
+    required_industry_tags: List[str] = []
+    full_time_education: Optional[bool] = None
+    max_age: Optional[int] = None

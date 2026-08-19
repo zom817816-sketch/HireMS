@@ -84,6 +84,16 @@ class TestCandidateAnalyzer:
         assert len(bounded) <= 19
         assert bounded.endswith(("。", "…"))
 
+    def test_empty_llm_report_uses_local_fallback(self):
+        analyzer = CandidateAnalyzer(MagicMock())
+        resume = {"id": "resume_001", "metadata": {"skills": ["Python", "FastAPI"]}}
+        analyzer.llm_client.generate_text.return_value = ""
+
+        candidate = analyzer.analyze_candidate(resume, QueryMetadata(required_skills=["Python"]))
+
+        assert "已命中 Python" in candidate["analysis"]
+        assert "LLM 未返回评价内容" in candidate["analysis"]
+
     @patch.dict(os.environ, {"OPENAI_API_KEY": "test-key", "OPENAI_BASE_URL": "https://test.url/v1"})
     @patch("app.core.analyzer.LLMClient")
     def test_analyze_candidates(self, mock_llm_client_class):

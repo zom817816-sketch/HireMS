@@ -66,11 +66,34 @@ class LLMClient:
                 
             model = self.model.bind(max_tokens=max_tokens) if max_tokens else self.model
             response = model.invoke(messages)
-            logger.debug(f"Generated text with {len(response.content)} characters")
-            return response.content
+            content = self._response_text(response)
+
+            # Some OpenAI-compatible endpoints accept max_tokens but respond with an
+            # empty completion. Retry once without the optional parameter so a report
+            # never silently turns into an empty UI field.
+            if not content and max_tokens:
+                logger.warning("LLM returned empty content with max_tokens; retrying without it")
+                content = self._response_text(self.model.invoke(messages))
+
+            logger.debug(f"Generated text with {len(content)} characters")
+            return content
         except Exception as e:
             logger.error(f"Failed to generate text: {e}")
             raise
+
+    @staticmethod
+    def _response_text(response: Any) -> str:
+        """Normalize string and structured OpenAI-compatible message content."""
+        content = getattr(response, "content", response)
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts = [
+                item.get("text", "") if isinstance(item, dict) else str(item)
+                for item in content
+            ]
+            return "".join(parts).strip()
+        return str(content or "").strip()
 
     def generate_with_template(self, template: str, **kwargs) -> str:
         """

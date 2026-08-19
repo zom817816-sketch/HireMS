@@ -50,6 +50,8 @@ class CandidateAnalyzer:
                 prompt, max_tokens=settings.CANDIDATE_ANALYSIS_MAX_TOKENS
             )
             analysis = self._limit_report(analysis, settings.CANDIDATE_ANALYSIS_MAX_CHARS)
+            if not analysis:
+                analysis = self._fallback_report(resume, query_metadata)
             
             # 创建包含分析结果的候选人数据
             candidate = resume.copy()
@@ -157,6 +159,17 @@ class CandidateAnalyzer:
         if sentence_end >= max_chars // 2:
             clipped = clipped[:sentence_end + 1].rstrip()
         return f"{clipped.rstrip('，；、:：')}…"
+
+    @staticmethod
+    def _fallback_report(resume: Dict[str, Any], query_metadata: QueryMetadata) -> str:
+        """Return an auditable local summary if an LLM backend returns no text."""
+        metadata = resume.get("metadata", {}) or {}
+        skills = metadata.get("skills", []) if isinstance(metadata, dict) else []
+        skills = skills if isinstance(skills, list) else []
+        required = query_metadata.required_skills or []
+        matched = [skill for skill in required if any(skill.lower() in str(item).lower() for item in skills)]
+        match_text = "、".join(matched) if matched else "未识别到明确必需技能"
+        return f"匹配：已命中 {match_text}。亮点：请结合简历项目经历复核。风险：LLM 未返回评价内容。建议：由 HR 查看原始简历后决定下一步。"
 
     def _format_work_experience(self, work_experience: List[Dict[str, Any]]) -> str:
         """

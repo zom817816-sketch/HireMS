@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from app.core.vector_store import VectorStoreManager
 from app.core.metadata_utils import deserialize_metadata
+from app.core.normalization import normalize_resume_metadata
 from app.models.metadata import ResumeMetadata, QueryMetadata
 from loguru import logger
 
@@ -198,7 +199,7 @@ class Retriever:
                     meta_val = {} if meta_val is None else {str(meta_val): meta_val}
 
                 # 反序列化元数据，将 JSON 字符串字段还原为 list/dict，供下游使用
-                meta_val = deserialize_metadata(meta_val)
+                meta_val = normalize_resume_metadata(deserialize_metadata(meta_val), source_text=doc_val)
 
                 result = {
                     "id": id_val,

@@ -128,6 +128,20 @@ class HardFilter:
                 logger.info(f"Before education filter: {len(filtered_resumes)}")
                 filtered_resumes = self._filter_by_education(filtered_resumes, query_metadata.required_education)
                 logger.info(f"After education filter: {len(filtered_resumes)}")
+
+            if query_metadata.full_time_education is True:
+                filtered_resumes = [r for r in filtered_resumes if r.get("metadata", {}).get("full_time_education") is not False]
+
+            if query_metadata.max_age is not None:
+                filtered_resumes = [
+                    r for r in filtered_resumes
+                    if r.get("metadata", {}).get("age") is None
+                    or r["metadata"]["age"] <= query_metadata.max_age
+                ]
+            if query_metadata.required_role_tags:
+                filtered_resumes = self._filter_by_tags(filtered_resumes, query_metadata.required_role_tags, "role_tags")
+            if query_metadata.required_industry_tags:
+                filtered_resumes = self._filter_by_tags(filtered_resumes, query_metadata.required_industry_tags, "industry_tags")
             
             # 根据所需技能过滤
             if query_metadata.required_skills and isinstance(filtered_resumes, list):
@@ -213,6 +227,20 @@ class HardFilter:
                 
         return filtered_resumes
 
+    @staticmethod
+    def _filter_by_tags(resumes: List[Dict[str, Any]], required: List[str], field: str) -> List[Dict[str, Any]]:
+        """Require tag evidence; retain only truly content-empty records for HR review."""
+        result = []
+        for resume in resumes:
+            metadata = resume.get("metadata", {}) or {}
+            tags = metadata.get(field, []) or []
+            if all(tag in tags for tag in required):
+                result.append(resume)
+                continue
+            if not any((metadata.get("work_experience"), metadata.get("summary"), metadata.get("skills"), resume.get("text"))):
+                result.append(resume)
+        return result
+
     def _filter_by_education(self, resumes: List[Dict[str, Any]], required_education: str) -> List[Dict[str, Any]]:
         """
         根据学历过滤简历
@@ -262,7 +290,8 @@ class HardFilter:
                 degree = edu.get("degree", "")
                 if degree:
                     has_degree_data = True
-                if education_levels.get(degree, 0) >= required_level:
+                level = edu.get("degree_level", education_levels.get(degree, 0))
+                if level >= required_level:
                     meets_requirement = True
                     break
 
@@ -336,7 +365,7 @@ class HardFilter:
                 logger.warning(f"Skipping resume with non-dict metadata: {type(metadata)}")
                 continue
                 
-            preferred_locations = metadata.get("preferred_locations", [])
+            preferred_locations = metadata.get("location_city") or metadata.get("preferred_locations", [])
             # 兼容 list / JSON 字符串 / 逗号分隔字符串
             preferred_locations = coerce_to_list(preferred_locations)
 
