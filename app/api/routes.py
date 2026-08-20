@@ -30,6 +30,9 @@ from app.core.scorer import Scorer
 from app.core.ranker import Ranker
 from app.core.analyzer import CandidateAnalyzer
 from app.core.result_formatter import ResultFormatter
+from app.core.deduplication import (
+    normalize_email, normalize_name, normalize_phone, resume_fingerprint,
+)
 from app.models.metadata import ResumeMetadata, QueryMetadata
 from app.services.email_intake import ImapResumeIntake
 from app.services.feishu_bitable import FeishuBitableWriter
@@ -87,21 +90,54 @@ def _extract_resume_text(filename: str, content: bytes) -> str:
     return content.decode("utf-8-sig")
 
 
-def _ingest_resume(filename: str, content: bytes, source: dict | None = None) -> str:
+def _ingest_resume(filename: str, content: bytes, source: dict | None = None) -> dict[str, Any]:
     """Shared ingestion path for Web uploads and email attachments."""
     if len(content) > MAX_FILE_SIZE:
         raise ValueError(f"文件大小超过限制 {MAX_FILE_SIZE / 1024 / 1024:.0f}MB")
     resume_text = _extract_resume_text(filename, content)
     if not resume_text.strip():
         raise ValueError("未能从简历中提取文本")
+
+    fingerprint = resume_fingerprint(resume_text)
+    exact_match = ops_store.find_resume_by_fingerprint(fingerprint)
+    if exact_match:
+        ops_store.log("resume_dedup", "skipped", f"重复简历已跳过：{filename} → {exact_match['resume_id']}")
+        return {
+            "resume_id": exact_match["resume_id"], "status": "duplicate",
+            "name": exact_match.get("name", ""), "possible_duplicate": False,
+        }
+
     metadata = metadata_extractor.extract_metadata(resume_text)
-    resume_id = str(uuid.uuid4())
+    metadata_dict = metadata.model_dump()
+    phone_key = normalize_phone(metadata.phone)
+    email_key = normalize_email(metadata.email)
+    name_key = normalize_name(metadata.name)
+    identity_match = ops_store.find_resume_by_identity(phone_key, email_key)
+    resume_id = identity_match["resume_id"] if identity_match else f"resume_{fingerprint[:32]}"
+    status = "updated" if identity_match else "created"
+    possible_duplicate = bool(ops_store.find_resumes_by_name(name_key, exclude_id=resume_id))
+
+    metadata_dict.update({
+        "content_fingerprint": fingerprint,
+        "identity_phone": phone_key,
+        "identity_email": email_key,
+    })
     resume_storage[resume_id] = {
         "id": resume_id, "filename": filename, "text": resume_text,
-        "metadata": metadata.dict(), "created_at": datetime.now(), "source": source or {"source": "web"},
+        "metadata": metadata_dict, "created_at": datetime.now(), "source": source or {"source": "web"},
     }
-    retriever.add_resume(resume_id, resume_text, metadata.dict())
-    return resume_id
+    retriever.add_resume(resume_id, resume_text, metadata_dict)
+    ops_store.record_resume_identity(
+        resume_id, fingerprint, phone_key, email_key, name_key, metadata.name, filename,
+    )
+    if possible_duplicate:
+        ops_store.log("resume_dedup", "review", f"检测到同名候选人，保留为独立记录：{metadata.name} / {filename}")
+    elif status == "updated":
+        ops_store.log("resume_dedup", "updated", f"根据手机号/邮箱更新候选人：{metadata.name} / {filename}")
+    return {
+        "resume_id": resume_id, "status": status, "name": metadata.name,
+        "possible_duplicate": possible_duplicate,
+    }
 
 
 def _friendly_ingest_error(error: Exception) -> tuple[int, str]:
@@ -164,15 +200,16 @@ async def health_check():
 @router.get("/resumes")
 async def list_resumes():
     """列出已上传的简历（摘要信息）。"""
-    items = []
+    items_by_id = {item["resume_id"]: item for item in ops_store.list_resume_identities()}
     for rid, data in resume_storage.items():
         meta = data.get("metadata", {}) or {}
-        items.append({
+        items_by_id[rid] = {
             "resume_id": rid,
             "filename": data.get("filename", ""),
             "name": meta.get("name", ""),
             "created_at": data.get("created_at"),
-        })
+        }
+    items = list(items_by_id.values())
     return {"total": len(items), "resumes": items}
 
 
@@ -188,11 +225,20 @@ async def upload_resume(file: UploadFile = File(...)):
 
     try:
         content = await file.read()
-        resume_id = await run_in_threadpool(_ingest_resume, file.filename, content, {"source": "web"})
+        result = await run_in_threadpool(_ingest_resume, file.filename, content, {"source": "web"})
+
+        messages = {
+            "created": f"简历 '{file.filename}' 已解析并入库",
+            "updated": f"检测到相同手机号或邮箱，已更新候选人 '{result.get('name') or file.filename}'",
+            "duplicate": f"检测到完全相同的简历，已跳过 '{file.filename}'",
+        }
+        message = messages[result["status"]]
+        if result.get("possible_duplicate"):
+            message += "；存在同名候选人，请人工复核"
 
         return UploadResumeResponse(
-            resume_id=resume_id,
-            message=f"简历 '{file.filename}' 上传成功"
+            resume_id=result["resume_id"], message=message,
+            status=result["status"], possible_duplicate=result.get("possible_duplicate", False),
         )
 
     except HTTPException:
@@ -382,6 +428,7 @@ async def delete_workflow_candidate(candidate_id: str):
     try:
         await run_in_threadpool(retriever.remove_resume, candidate_id)
         deleted = ops_store.delete_candidate(candidate_id)
+        ops_store.delete_resume_identity(candidate_id)
         resume_storage.pop(candidate_id, None)
         ops_store.log("candidate_delete", "success", f"已删除本地候选人：{candidate.get('name') or candidate_id}")
         return {"deleted": True, "candidate_id": candidate_id, "cleanup": deleted}

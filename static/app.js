@@ -91,14 +91,19 @@ async function uploadResumes() {
   if (!files.length) { notify("请先选择至少一份简历文件"); return; }
   $("upload-btn").disabled = true;
   setLog(`正在导入 ${files.length} 份简历…`, true);
-  let ok = 0, lines = [];
+  let ok = 0, skipped = 0, lines = [];
   for (const file of files) {
     const form = new FormData(); form.append("file", file);
-    try { await request(`${API}/resumes`, {method: "POST", body: form}); ok++; lines.push(`✓ ${file.name}`); }
+    try {
+      const result = await request(`${API}/resumes`, {method: "POST", body: form});
+      if (result.status === "duplicate") skipped++; else ok++;
+      lines.push(`${result.status === "duplicate" ? "↷" : "✓"} ${file.name}: ${result.message}`);
+    }
     catch (error) { lines.push(`× ${file.name}: ${error.message}`); }
   }
-  setLog(`导入完成：${ok}/${files.length}\n${lines.join("\n")}`);
-  notify(ok ? `${ok} 份简历已进入信号队列` : "没有简历被成功导入");
+  const failed = files.length - ok - skipped;
+  setLog(`处理完成：入库/更新 ${ok}，重复跳过 ${skipped}，失败 ${failed}\n${lines.join("\n")}`);
+  notify(ok ? `${ok} 份简历已入库或更新` : (skipped ? `${skipped} 份重复简历已跳过` : "没有简历被成功导入"));
   input.value = ""; updateSelectedFiles(); await loadResumes();
 }
 

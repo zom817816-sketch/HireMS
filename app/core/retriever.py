@@ -2,6 +2,7 @@ from typing import List, Dict, Any, Optional
 from app.core.vector_store import VectorStoreManager
 from app.core.metadata_utils import deserialize_metadata
 from app.core.normalization import normalize_resume_metadata
+from app.core.deduplication import resume_deduplication_keys
 from app.models.metadata import ResumeMetadata, QueryMetadata
 from loguru import logger
 
@@ -212,5 +213,15 @@ class Retriever:
         except Exception as e:
             logger.error(f"Failed to format results: {e}")
             
-        logger.info(f"Formatted {len(formatted_results)} results")
-        return formatted_results
+        unique_results = []
+        seen_keys: set[str] = set()
+        for result in formatted_results:
+            keys = resume_deduplication_keys(result.get("text", ""), result.get("metadata", {}) or {})
+            if any(key in seen_keys for key in keys):
+                logger.info(f"Skipped duplicate retrieval result: {result.get('id')}")
+                continue
+            seen_keys.update(keys)
+            unique_results.append(result)
+
+        logger.info(f"Formatted {len(formatted_results)} results, {len(unique_results)} after deduplication")
+        return unique_results

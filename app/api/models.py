@@ -7,6 +7,8 @@ class UploadResumeResponse(BaseModel):
     """上传简历响应模型"""
     resume_id: str
     message: str
+    status: str = "created"
+    possible_duplicate: bool = False
 
 
 class QueryRequest(BaseModel):

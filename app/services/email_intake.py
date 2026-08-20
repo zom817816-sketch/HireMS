@@ -6,7 +6,7 @@ import hashlib
 import imaplib
 from datetime import datetime, timedelta
 from email.header import decode_header
-from typing import Callable
+from typing import Any, Callable
 
 from config.config import settings
 from app.services.intake_store import IntakeStore
@@ -31,10 +31,10 @@ class ImapResumeIntake:
     def configured() -> bool:
         return bool(settings.MAIL_IMAP_HOST and settings.MAIL_IMAP_USER and settings.MAIL_IMAP_PASSWORD)
 
-    def fetch(self, import_attachment: Callable[[str, bytes, dict], str]) -> dict:
+    def fetch(self, import_attachment: Callable[[str, bytes, dict], str | dict[str, Any]]) -> dict:
         """Fetch recent matching attachments and delegate them to the shared importer.
 
-        ``import_attachment`` returns a resume id. The fingerprint is recorded only
+        ``import_attachment`` returns a resume id or ingestion result. The fingerprint is recorded only
         after a successful import, so a transient LLM/API failure can be retried.
         """
         if not self.configured():
@@ -78,13 +78,21 @@ class ImapResumeIntake:
                         result["skipped"] += 1
                         continue
                     try:
-                        resume_id = import_attachment(filename, content, {
+                        ingest_result = import_attachment(filename, content, {
                             "source": "feishu_mail", "message_id": message_id, "subject": subject,
                             "from": _decode_header(message.get("From")),
                         })
+                        if isinstance(ingest_result, dict):
+                            resume_id = ingest_result["resume_id"]
+                            ingest_status = ingest_result.get("status", "created")
+                        else:
+                            resume_id, ingest_status = ingest_result, "created"
                         self.store.mark_imported(fingerprint, message_id, filename)
-                        result["imported"] += 1
-                        result["items"].append({"filename": filename, "resume_id": resume_id})
+                        if ingest_status == "duplicate":
+                            result["skipped"] += 1
+                        else:
+                            result["imported"] += 1
+                        result["items"].append({"filename": filename, "resume_id": resume_id, "status": ingest_status})
                     except Exception as exc:  # importer needs to expose all failures in the console
                         result["failed"] += 1
                         result["items"].append({"filename": filename, "error": str(exc)})

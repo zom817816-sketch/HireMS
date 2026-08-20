@@ -1,8 +1,7 @@
-"""Small local audit store for email ingestion and Bitable exports.
+"""Small local audit and resume identity store.
 
-It deliberately stores only message/attachment fingerprints and operation logs,
-never resume contents or email passwords. Resume data continues through the
-existing screening pipeline.
+It stores fingerprints and normalized identity keys, never resume contents or
+email passwords. Resume data continues through the existing screening pipeline.
 """
 from __future__ import annotations
 
@@ -59,6 +58,103 @@ class IntakeStore:
                 id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
                 kind TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL)"""
             )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS resume_identity (
+                resume_id TEXT PRIMARY KEY, phone_key TEXT, email_key TEXT,
+                name_key TEXT, display_name TEXT, filename TEXT,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS resume_fingerprint (
+                fingerprint TEXT PRIMARY KEY, resume_id TEXT NOT NULL,
+                filename TEXT, imported_at TEXT NOT NULL)"""
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_phone ON resume_identity(phone_key)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_email ON resume_identity(email_key)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_name ON resume_identity(name_key)")
+
+    def find_resume_by_fingerprint(self, fingerprint: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT f.resume_id, i.display_name, i.filename, i.created_at, i.updated_at
+                FROM resume_fingerprint f LEFT JOIN resume_identity i ON i.resume_id=f.resume_id
+                WHERE f.fingerprint=?""",
+                (fingerprint,),
+            ).fetchone()
+        if not row:
+            return None
+        return {"resume_id": row[0], "name": row[1] or "", "filename": row[2] or "", "created_at": row[3], "updated_at": row[4]}
+
+    def find_resume_by_identity(self, phone_key: str = "", email_key: str = "") -> dict | None:
+        clauses, params = [], []
+        if phone_key:
+            clauses.append("phone_key=?")
+            params.append(phone_key)
+        if email_key:
+            clauses.append("email_key=?")
+            params.append(email_key)
+        if not clauses:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT resume_id, display_name, filename, created_at, updated_at FROM resume_identity WHERE {' OR '.join(clauses)} ORDER BY updated_at DESC LIMIT 1",
+                tuple(params),
+            ).fetchone()
+        if not row:
+            return None
+        return {"resume_id": row[0], "name": row[1] or "", "filename": row[2] or "", "created_at": row[3], "updated_at": row[4]}
+
+    def find_resumes_by_name(self, name_key: str, exclude_id: str = "") -> list[dict]:
+        if not name_key:
+            return []
+        query = "SELECT resume_id, display_name, filename FROM resume_identity WHERE name_key=?"
+        params: list[str] = [name_key]
+        if exclude_id:
+            query += " AND resume_id<>?"
+            params.append(exclude_id)
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [{"resume_id": row[0], "name": row[1] or "", "filename": row[2] or ""} for row in rows]
+
+    def record_resume_identity(
+        self, resume_id: str, fingerprint: str, phone_key: str, email_key: str,
+        name_key: str, display_name: str, filename: str,
+    ) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM resume_identity WHERE resume_id=?", (resume_id,)
+            ).fetchone()
+            created_at = existing[0] if existing else now
+            conn.execute(
+                """INSERT INTO resume_identity
+                (resume_id, phone_key, email_key, name_key, display_name, filename, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(resume_id) DO UPDATE SET phone_key=excluded.phone_key,
+                email_key=excluded.email_key, name_key=excluded.name_key,
+                display_name=excluded.display_name, filename=excluded.filename,
+                updated_at=excluded.updated_at""",
+                (resume_id, phone_key, email_key, name_key, display_name, filename, created_at, now),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO resume_fingerprint VALUES (?, ?, ?, ?)",
+                (fingerprint, resume_id, filename, now),
+            )
+
+    def list_resume_identities(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT resume_id, filename, display_name, created_at, updated_at FROM resume_identity ORDER BY updated_at DESC"
+            ).fetchall()
+        return [
+            {"resume_id": row[0], "filename": row[1] or "", "name": row[2] or "", "created_at": row[3], "updated_at": row[4]}
+            for row in rows
+        ]
+
+    def delete_resume_identity(self, resume_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM resume_fingerprint WHERE resume_id=?", (resume_id,))
+            conn.execute("DELETE FROM resume_identity WHERE resume_id=?", (resume_id,))
 
     def already_imported(self, fingerprint: str) -> bool:
         with self._connect() as conn:
