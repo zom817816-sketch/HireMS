@@ -68,10 +68,15 @@ python -m uvicorn app.main:app --reload --port 8000
 
 ```env
 SCREENING_RETRIEVAL_LIMIT=50
+SCREENING_LOOKBACK_DAYS=60
 SCREENING_ANALYSIS_LIMIT=10
 CANDIDATE_ANALYSIS_MAX_TOKENS=360
 CANDIDATE_ANALYSIS_MAX_CHARS=260
 ```
+
+导入时由 LLM 提取岗位类别，再归一化为教育培训行业的九个宽类别：`销售`、`教师`、`教务学管`、`运营`、`市场`、`管理`、`产品技术`、`职能`、`其他`，同时记录 UTC 时间戳。JD 会解析为相同类别，向量库只在最近 `SCREENING_LOOKBACK_DAYS` 天且类别一致的简历中召回；默认 60 天。课程顾问、招生顾问、电销等归为销售，学科老师、讲师、教研/授课等归为教师，避免类别拆得过细。
+
+升级前已经入库的简历会在首次筛选时从现有向量文本一次性补齐类别和原始入库时间，不会再次调用 LLM；向量记录缺失的个别历史简历才需要重新导入。
 
 候选池较大时可将 `SCREENING_RETRIEVAL_LIMIT` 调至 100～200；若响应时间或成本更重要，则优先下调 `SCREENING_ANALYSIS_LIMIT`。每份 AI 评价会被限制为四条简短要点，并在本地兜底截断，避免队列卡片显示半截报告。
 
