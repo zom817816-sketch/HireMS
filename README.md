@@ -49,6 +49,9 @@ EMBEDDING_API_KEY=你的密钥
 EMBEDDING_BASE_URL=https://你的兼容接口/v1
 EMBEDDING_MODEL=你的嵌入模型名
 VECTOR_DB=chroma
+
+# 可选：原始简历本地保存目录
+RESUME_FILE_DIR=./data/resumes
 ```
 
 启动本地 Web UI：
@@ -77,7 +80,7 @@ CANDIDATE_ANALYSIS_MAX_CHARS=260
 1. 在“收件与入库”中同步邮箱或手动导入简历。
 2. 输入岗位要求，例如“3 年以上 Python 后端、熟悉 FastAPI、本科及以上、北京”。
 3. 运行筛选，查看 AI 评分和候选人摘要。
-4. 在候选人卡片或“招聘流程”看板中执行通过、淘汰、安排面试。
+4. 在候选人卡片或“招聘流程”看板中查看原始简历，并执行通过、淘汰、安排面试。
 5. 完成面试评价后推进到 Offer；跟踪待发、已发、已接受或已拒绝。
 
 没有配置飞书时，以上流程仍可在本地 SQLite 工作流中完整运行；配置完成后自动接入飞书。
@@ -158,6 +161,7 @@ FEISHU_INTERVIEWER_CALENDAR_MAP={"ou_xxx":"feishu.cn_xxx@group.calendar.feishu.c
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | `POST` | `/resumes` | 手动上传简历 |
+| `GET` | `/resumes/{id}/file` | 预览原始简历；追加 `?download=true` 可下载 |
 | `POST` | `/operations/mail-sync` | 同步邮箱附件 |
 | `POST` | `/queries` | 提交岗位要求 |
 | `GET` | `/results/{query_id}` | 执行筛选并返回结果 |
@@ -172,7 +176,8 @@ FEISHU_INTERVIEWER_CALENDAR_MAP={"ou_xxx":"feishu.cn_xxx@group.calendar.feishu.c
 ## 数据与安全
 
 - `.env`、邮箱密码和飞书 App Secret 不会在页面中保存或回显。
-- 本地 `data/hirems_ops.sqlite3` 仅保存邮件附件指纹、候选人工作流、面试与通知日志；不保存邮箱密码和简历正文。
+- 本地 `data/hirems_ops.sqlite3` 保存邮件附件指纹、候选人工作流、面试、通知日志和原件相对路径；原始简历默认保存在 `data/resumes/`，不保存邮箱密码。
+- 删除候选人时会同步删除其本地原始简历。历史候选人若没有原件，需要重新导入一次后才能在队列中打开。
 - AI 评分只用于辅助决策。淘汰、约面与 Offer 应保留人工审核。
 - 上线前应设置候选人数据留存周期、访问权限、审计策略和离职人员权限回收流程。
 
@@ -182,7 +187,7 @@ FEISHU_INTERVIEWER_CALENDAR_MAP={"ou_xxx":"feishu.cn_xxx@group.calendar.feishu.c
 python -m pytest tests/test_api.py tests/test_document_parsing.py -q
 ```
 
-当前回归结果：`11 passed`。
+查看原始简历功能的专项测试位于 `tests/test_resume_file_access.py`。
 
 ## 相关飞书文档
 
