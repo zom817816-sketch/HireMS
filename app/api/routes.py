@@ -10,7 +10,7 @@ import os
 import tempfile
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from starlette.concurrency import run_in_threadpool
 
@@ -37,6 +37,7 @@ from app.models.metadata import ResumeMetadata, QueryMetadata
 from app.services.email_intake import ImapResumeIntake
 from app.services.feishu_bitable import FeishuBitableWriter
 from app.services.intake_store import IntakeStore
+from app.services.resume_file_store import ResumeFileStore
 from app.services.feishu_workflow import FeishuWorkflowClient
 from config.config import settings
 
@@ -63,9 +64,41 @@ result_formatter = ResultFormatter()
 resume_storage: Dict[str, Any] = {}
 query_storage: Dict[str, Any] = {}
 ops_store = IntakeStore()
+resume_file_store = ResumeFileStore()
 mail_intake = ImapResumeIntake(ops_store)
 bitable_writer = FeishuBitableWriter()
 feishu_workflow = FeishuWorkflowClient()
+
+def _store_resume_original(resume_id: str, filename: str, content: bytes) -> dict:
+    """Save an original and atomically switch its database association."""
+    previous = ops_store.get_resume_file(resume_id)
+    stored = resume_file_store.save(resume_id, filename, content)
+    ops_store.record_resume_file(
+        resume_id=resume_id,
+        original_filename=stored["original_filename"],
+        relative_path=stored["relative_path"],
+        media_type=stored["media_type"],
+        size_bytes=stored["size_bytes"],
+    )
+    if isinstance(previous, dict) and previous.get("relative_path") != stored["relative_path"]:
+        resume_file_store.delete(previous["relative_path"])
+    return stored
+
+
+def _resume_file_available(resume_id: str) -> bool:
+    record = ops_store.get_resume_file(resume_id)
+    if not isinstance(record, dict):
+        return False
+    try:
+        resume_file_store.resolve(record["relative_path"])
+        return True
+    except (FileNotFoundError, ValueError, KeyError):
+        return False
+
+
+def _decorate_resume_file(candidate: dict) -> dict:
+    return {**candidate, "has_resume_file": _resume_file_available(candidate.get("id", ""))}
+
 
 WORKFLOW_ACTIONS = {
     "pass": "通过", "reject": "淘汰", "schedule": "安排面试",
@@ -101,6 +134,8 @@ def _ingest_resume(filename: str, content: bytes, source: dict | None = None) ->
     fingerprint = resume_fingerprint(resume_text)
     exact_match = ops_store.find_resume_by_fingerprint(fingerprint)
     if exact_match:
+        if not ops_store.get_resume_file(exact_match["resume_id"]):
+            _store_resume_original(exact_match["resume_id"], filename, content)
         ops_store.log("resume_dedup", "skipped", f"重复简历已跳过：{filename} → {exact_match['resume_id']}")
         return {
             "resume_id": exact_match["resume_id"], "status": "duplicate",
@@ -130,6 +165,7 @@ def _ingest_resume(filename: str, content: bytes, source: dict | None = None) ->
     ops_store.record_resume_identity(
         resume_id, fingerprint, phone_key, email_key, name_key, metadata.name, filename,
     )
+    _store_resume_original(resume_id, filename, content)
     if possible_duplicate:
         ops_store.log("resume_dedup", "review", f"检测到同名候选人，保留为独立记录：{metadata.name} / {filename}")
     elif status == "updated":
@@ -209,7 +245,10 @@ async def list_resumes():
             "name": meta.get("name", ""),
             "created_at": data.get("created_at"),
         }
-    items = list(items_by_id.values())
+    items = [
+        {**item, "has_resume_file": _resume_file_available(resume_id)}
+        for resume_id, item in items_by_id.items()
+    ]
     return {"total": len(items), "resumes": items}
 
 
@@ -350,7 +389,8 @@ async def get_screening_results(query_id: str):
                 "skills": resume_skills,
                 "expected_salary": basic_info.get("expected_salary"),
                 "preferred_locations": basic_info.get("preferred_locations", []),
-                "analysis": candidate_data.get("analysis", "")
+                "analysis": candidate_data.get("analysis", ""),
+                "has_resume_file": _resume_file_available(candidate_data.get("id", "")),
             }
             candidates.append(candidate)
 
@@ -385,7 +425,8 @@ async def get_screening_results(query_id: str):
 
 @router.get("/workflow/candidates")
 async def list_workflow_candidates(status: str | None = None):
-    return {"candidates": ops_store.list_candidates(status), "total": len(ops_store.list_candidates(status))}
+    candidates = [_decorate_resume_file(item) for item in ops_store.list_candidates(status)]
+    return {"candidates": candidates, "total": len(candidates)}
 
 
 @router.get("/workflow/candidates/{candidate_id}")
@@ -393,7 +434,7 @@ async def get_workflow_candidate(candidate_id: str):
     candidate = ops_store.get_candidate(candidate_id)
     if not candidate:
         raise HTTPException(status_code=404, detail="候选人不在工作流队列中")
-    return {"candidate": candidate, "interviews": ops_store.list_interviews(candidate_id)}
+    return {"candidate": _decorate_resume_file(candidate), "interviews": ops_store.list_interviews(candidate_id)}
 
 
 @router.post("/workflow/candidates/{candidate_id}/action")
@@ -425,10 +466,14 @@ async def delete_workflow_candidate(candidate_id: str):
             detail="该候选人存在已同步到飞书日历的面试，请先在飞书取消日程后再删除本地候选人。",
         )
 
+    file_record = ops_store.get_resume_file(candidate_id)
     try:
         await run_in_threadpool(retriever.remove_resume, candidate_id)
         deleted = ops_store.delete_candidate(candidate_id)
         ops_store.delete_resume_identity(candidate_id)
+        ops_store.delete_resume_file(candidate_id)
+        if isinstance(file_record, dict) and file_record.get("relative_path"):
+            await run_in_threadpool(resume_file_store.delete, file_record["relative_path"])
         resume_storage.pop(candidate_id, None)
         ops_store.log("candidate_delete", "success", f"已删除本地候选人：{candidate.get('name') or candidate_id}")
         return {"deleted": True, "candidate_id": candidate_id, "cleanup": deleted}
@@ -593,6 +638,31 @@ async def export_to_bitable(request: BitableExportRequest):
         logger.exception("多维表格写入失败")
         ops_store.log("bitable_export", "failed", str(e))
         raise HTTPException(status_code=502, detail=f"多维表格写入失败：{e}")
+
+
+@router.get("/resumes/{resume_id}/file")
+async def get_resume_file(resume_id: str, download: bool = False):
+    """Preview or download an imported original without exposing its disk path."""
+    record = ops_store.get_resume_file(resume_id)
+    if not isinstance(record, dict):
+        raise HTTPException(
+            status_code=404,
+            detail="未找到该候选人的原始简历；历史数据请重新导入一次。",
+        )
+    try:
+        path = resume_file_store.resolve(record["relative_path"])
+    except (FileNotFoundError, ValueError, KeyError):
+        logger.warning(f"Resume original is missing or invalid: {resume_id}")
+        raise HTTPException(status_code=404, detail="原始简历文件不存在，请重新导入。")
+
+    force_download = download or path.suffix.lower() == ".docx"
+    return FileResponse(
+        path=path,
+        media_type=record.get("media_type") or "application/octet-stream",
+        filename=record.get("original_filename") or path.name,
+        content_disposition_type="attachment" if force_download else "inline",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/resumes/{resume_id}")

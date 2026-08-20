@@ -91,6 +91,7 @@ class Candidate(BaseModel):
     expected_salary: Optional[str] = None
     preferred_locations: List[str] = []
     analysis: str = ""
+    has_resume_file: bool = False
 
 
 class ScreeningResult(BaseModel):

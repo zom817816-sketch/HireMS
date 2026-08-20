@@ -160,6 +160,8 @@ class Settings:
 
     # 缓存
     CACHE_DIR: str = os.getenv("CACHE_DIR", "./cache")
+    # Imported resume originals. Only paths relative to this directory are stored.
+    RESUME_FILE_DIR: str = os.getenv("RESUME_FILE_DIR", "./data/resumes")
 
     # 日志级别
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

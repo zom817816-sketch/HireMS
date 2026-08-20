@@ -18,6 +18,7 @@ models/huggingface/
 _conn_test_db/
 _it_db/
 data/*.pdf
+data/resumes/
 *.log
 *.sqlite3
 

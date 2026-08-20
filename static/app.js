@@ -137,8 +137,13 @@ function setupFileIntake() {
   });
 }
 
+function resumeButton(candidate, label = "查看简历") {
+  if (!candidate.has_resume_file) return `<button class="mini-button resume" disabled title="历史候选人尚未保存原始文件，请重新导入简历">${label}</button>`;
+  return `<button class="mini-button resume" data-candidate="${candidate.id}" data-action="view">${label}</button>`;
+}
+
 function actionsFor(candidate) {
-  return `<div class="candidate-actions"><button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排面试</button><button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button></div>`;
+  return `<div class="candidate-actions">${resumeButton(candidate)}<button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排面试</button><button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button></div>`;
 }
 
 function renderResults(data) {
@@ -183,7 +188,7 @@ function pipelineActions(candidate) {
   else if (["通过", "安排面试", "面试中"].includes(candidate.status)) actions = `<button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排轮次</button><button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_pending">转 Offer</button>`;
   else if (candidate.status === "Offer待发") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_sent">已发 Offer</button>`;
   else if (candidate.status === "Offer已发") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_accepted">接受</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="offer_rejected">拒绝</button>`;
-  return `${actions}<button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button>`;
+  return `${resumeButton(candidate, "简历")}${actions}<button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button>`;
 }
 
 function renderPipeline() {
@@ -199,6 +204,10 @@ async function loadPipeline() {
 }
 
 async function candidateAction(id, action) {
+  if (action === "view") {
+    window.open(`${API}/resumes/${encodeURIComponent(id)}/file`, "_blank", "noopener,noreferrer");
+    return;
+  }
   if (action === "schedule") return openSchedule(id);
   if (action === "delete") return deleteCandidate(id);
   try { await request(`${API}/workflow/candidates/${id}/action`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action})}); notify("候选人状态已推进"); await Promise.all([loadPipeline(), loadStatus()]); }

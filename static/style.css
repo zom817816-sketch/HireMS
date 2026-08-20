@@ -13,3 +13,4 @@ main{max-width:1550px;margin-left:238px;padding:0 6vw 95px}.hero{position:relati
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}.reveal{opacity:1;transform:none}}
 .drop-zone{width:100%;color:var(--ink);text-align:left}.drop-zone.dragging{border-color:var(--ink);background:#fff;box-shadow:0 0 0 3px rgba(217,250,88,.28)}input[type=file]{width:1px;height:1px}.selected-files{position:relative;z-index:1;min-height:16px;margin:9px 0 0;color:var(--muted);font:9px/1.5 var(--mono)}.selected-files.ready{color:#4a6720}.upload-card .button{margin-top:8px}
 .mini-button.delete{border-color:#e3b2a7;background:#fff8f5;color:#a33b26}.mini-button.delete:hover{background:#fce6e0}
+.mini-button.resume{border-color:#a9c4bd;background:#edf7f4;color:#275b51}.mini-button:disabled{cursor:not-allowed;opacity:.45;transform:none}

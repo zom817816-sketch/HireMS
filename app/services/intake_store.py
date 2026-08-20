@@ -69,6 +69,12 @@ class IntakeStore:
                 fingerprint TEXT PRIMARY KEY, resume_id TEXT NOT NULL,
                 filename TEXT, imported_at TEXT NOT NULL)"""
             )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS resume_file (
+                resume_id TEXT PRIMARY KEY, original_filename TEXT NOT NULL,
+                relative_path TEXT NOT NULL, media_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL, updated_at TEXT NOT NULL)"""
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_phone ON resume_identity(phone_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_email ON resume_identity(email_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_name ON resume_identity(name_key)")
@@ -155,6 +161,42 @@ class IntakeStore:
         with self._connect() as conn:
             conn.execute("DELETE FROM resume_fingerprint WHERE resume_id=?", (resume_id,))
             conn.execute("DELETE FROM resume_identity WHERE resume_id=?", (resume_id,))
+
+    def record_resume_file(
+        self, resume_id: str, original_filename: str, relative_path: str,
+        media_type: str, size_bytes: int,
+    ) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO resume_file
+                (resume_id, original_filename, relative_path, media_type, size_bytes, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(resume_id) DO UPDATE SET
+                original_filename=excluded.original_filename,
+                relative_path=excluded.relative_path, media_type=excluded.media_type,
+                size_bytes=excluded.size_bytes, updated_at=excluded.updated_at""",
+                (resume_id, original_filename, relative_path, media_type, size_bytes, now),
+            )
+
+    def get_resume_file(self, resume_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT resume_id, original_filename, relative_path, media_type,
+                size_bytes, updated_at FROM resume_file WHERE resume_id=?""",
+                (resume_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "resume_id": row[0], "original_filename": row[1],
+            "relative_path": row[2], "media_type": row[3],
+            "size_bytes": row[4], "updated_at": row[5],
+        }
+
+    def delete_resume_file(self, resume_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM resume_file WHERE resume_id=?", (resume_id,))
 
     def already_imported(self, fingerprint: str) -> bool:
         with self._connect() as conn:
