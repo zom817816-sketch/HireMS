@@ -104,6 +104,7 @@ class ScreeningResult(BaseModel):
     candidates: List[Candidate]
     created_at: datetime
     recall_scope: Dict[str, Any] = Field(default_factory=dict)
+    bitable_sync: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):

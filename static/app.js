@@ -155,8 +155,13 @@ function renderResults(data) {
   const candidates = data.candidates || [];
   currentResults = candidates;
   const scope = data.recall_scope || {};
+  const sync = data.bitable_sync || {};
   const scopeText = scope.job_category ? ` · ${scope.job_category} · 近 ${scope.lookback_days || 60} 天` : "";
-  $("result-meta").textContent = `${candidates.length} 位匹配候选人${scopeText}`;
+  const syncText = sync.status === "success" ? ` · 已自动落表 ${sync.exported}`
+    : sync.status === "up_to_date" ? " · 多维表格已同步"
+    : sync.status === "failed" ? " · 自动落表失败，可重试"
+    : sync.status === "no_eligible_candidates" ? " · 暂无候选人达到落表阈值" : "";
+  $("result-meta").textContent = `${candidates.length} 位匹配候选人${scopeText}${syncText}`;
   $("export-btn").disabled = !candidates.length;
   $("results").innerHTML = candidates.length ? candidates.map((candidate, index) => {
     const score = Math.round(Number(candidate.overall_score || 0) * 100);
@@ -181,7 +186,10 @@ async function runQuery() {
     const result = await request(`${API}/results/${lastQueryId}`);
     renderResults(result);
     setScreenState(`筛选完成 · ${result.total_candidates} 位候选人抵达`);
-    notify(`筛选完成，发现 ${result.total_candidates} 位候选人`);
+    const sync = result.bitable_sync || {};
+    if (sync.status === "success") notify(`筛选完成，${sync.exported} 位高分候选人已自动写入多维表格`);
+    else if (sync.status === "failed") notify(`筛选完成；自动落表失败，可点击按钮重试：${sync.message || "请检查飞书配置"}`);
+    else notify(`筛选完成，发现 ${result.total_candidates} 位候选人`);
     await Promise.all([loadPipeline(), loadStatus()]);
   } catch (error) {
     $("results").innerHTML = `<div class="empty-state">筛选失败：${escapeHtml(error.message)}<span>请检查 LLM 配置或稍后重试。</span></div>`;
@@ -262,7 +270,7 @@ async function runNotification(kind) {
 async function exportBitable() {
   if (!lastQueryId) return;
   const btn = $("export-btn"); btn.disabled = true;
-  try { const data = await request(`${API}/operations/bitable-export`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query_id: lastQueryId, job_name: $("query-text").value.trim().slice(0, 80) || "未命名岗位"})}); notify(`已写入 ${data.exported} 条候选人记录`); }
+  try { const data = await request(`${API}/operations/bitable-export`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query_id: lastQueryId, job_name: $("query-text").value.trim().slice(0, 80) || "未命名岗位"})}); notify(data.message || `已写入 ${data.exported} 条候选人记录`); }
   catch (error) { notify(`多维表格写入失败：${error.message}`); }
   finally { btn.disabled = false; await loadStatus(); }
 }

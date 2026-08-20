@@ -62,6 +62,14 @@ def _positive_int_env(name: str, default: int) -> int:
         return default
 
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    """Read a conventional boolean environment variable."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Settings:
     """应用配置项"""
 
@@ -181,6 +189,9 @@ class Settings:
     FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")
     FEISHU_BITABLE_APP_TOKEN: str = os.getenv("FEISHU_BITABLE_APP_TOKEN", "")
     FEISHU_BITABLE_TABLE_ID: str = os.getenv("FEISHU_BITABLE_TABLE_ID", "")
+    # Automatically persist high-scoring candidates after screening. Failures are
+    # audited locally and never make the screening request fail.
+    FEISHU_BITABLE_AUTO_EXPORT: bool = _bool_env("FEISHU_BITABLE_AUTO_EXPORT", True)
     FEISHU_EXPORT_MIN_SCORE: float = float(os.getenv("FEISHU_EXPORT_MIN_SCORE", "0.70"))
     FEISHU_HR_RECEIVER_IDS: str = os.getenv("FEISHU_HR_RECEIVER_IDS", "")
     FEISHU_CALENDAR_ID: str = os.getenv("FEISHU_CALENDAR_ID", "")

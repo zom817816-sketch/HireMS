@@ -259,6 +259,45 @@ def _friendly_ingest_error(error: Exception) -> tuple[int, str]:
     return 500, "简历解析或结构化提取失败，简历尚未入库。请查看服务端日志获取详细原因。"
 
 
+def _sync_candidates_to_bitable(
+    query_id: str, candidates: list[dict[str, Any]], job_name: str,
+) -> dict[str, Any]:
+    """Write each high-scoring candidate once for a screening batch."""
+    if not bitable_writer.configured():
+        raise ValueError("多维表格尚未配置，自动写入已跳过")
+
+    eligible = [
+        candidate for candidate in candidates
+        if candidate.get("id")
+        and float(candidate.get("overall_score", 0)) >= settings.FEISHU_EXPORT_MIN_SCORE
+    ]
+    synced_ids = ops_store.bitable_synced_candidate_ids(query_id)
+    pending = [candidate for candidate in eligible if candidate["id"] not in synced_ids]
+    if not pending:
+        return {
+            "status": "up_to_date" if eligible else "no_eligible_candidates",
+            "eligible": len(eligible), "exported": 0,
+            "already_synced": len(eligible),
+            "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
+        }
+
+    exported = bitable_writer.write_candidates(pending, job_name)
+    if exported != len(pending):
+        raise RuntimeError(f"多维表格返回写入 {exported}/{len(pending)} 条，未记录同步状态")
+    ops_store.mark_bitable_synced(
+        query_id, [str(candidate["id"]) for candidate in pending], job_name,
+    )
+    ops_store.log(
+        "bitable_export", "success",
+        f"岗位 {job_name} 自动写入 {exported} 位高分候选人",
+    )
+    return {
+        "status": "success", "eligible": len(eligible), "exported": exported,
+        "already_synced": len(eligible) - exported,
+        "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
+    }
+
+
 def _safe_json_loads(value: Any, default: Any = None) -> Any:
     """安全解析 JSON 字符串；若已是目标类型则直接返回。"""
     if default is None:
@@ -367,7 +406,12 @@ async def operations_status():
     """Expose setup state without ever returning a secret or password."""
     return {
         "mail": {"configured": mail_intake.configured(), "host": settings.MAIL_IMAP_HOST, "user": settings.MAIL_IMAP_USER},
-        "bitable": {"configured": bitable_writer.configured(), "app_token": settings.FEISHU_BITABLE_APP_TOKEN[-6:] if settings.FEISHU_BITABLE_APP_TOKEN else ""},
+        "bitable": {
+            "configured": bitable_writer.configured(),
+            "app_token": settings.FEISHU_BITABLE_APP_TOKEN[-6:] if settings.FEISHU_BITABLE_APP_TOKEN else "",
+            "auto_export": settings.FEISHU_BITABLE_AUTO_EXPORT,
+            "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
+        },
         "logs": ops_store.recent_logs(),
     }
 
@@ -421,6 +465,9 @@ async def get_screening_results(query_id: str):
 
     try:
         query_data = query_storage[query_id]
+        cached_result = query_data.get("screening_result")
+        if cached_result:
+            return ScreeningResult.model_validate(cached_result)
         query_metadata = QueryMetadata(**query_data["metadata"])
 
         await run_in_threadpool(_upgrade_legacy_recall_metadata)
@@ -471,21 +518,36 @@ async def get_screening_results(query_id: str):
             }
             candidates.append(candidate)
 
-        # The result page is also the workflow entry point: save every candidate
-        # for human review and notify the assigned HR only the first time it appears.
+        # The result page is also the workflow entry point. Candidate-card
+        # automation is intentionally delegated to Feishu Bitable, so HireMS only
+        # persists the local review queue here.
         for candidate in candidates:
-            workflow_candidate = ops_store.upsert_candidate(candidate, query_data["text"])
-            if workflow_candidate.pop("_created", False):
-                try:
-                    sent = await run_in_threadpool(feishu_workflow.send_candidate_card, workflow_candidate)
-                    ops_store.notification(candidate["id"], "new_candidate", "feishu_card", "success", f"已推送给 {sent} 位 HR")
-                except ValueError:
-                    ops_store.notification(candidate["id"], "new_candidate", "local_queue", "pending", "飞书未配置，已保留在本地待复核队列")
-                except Exception as notification_error:
-                    logger.warning(f"新候选人卡片推送失败: {notification_error}")
-                    ops_store.notification(candidate["id"], "new_candidate", "feishu_card", "failed", str(notification_error))
+            ops_store.upsert_candidate(candidate, query_data["text"])
 
-        return ScreeningResult(
+        bitable_sync: dict[str, Any] = {
+            "status": "disabled", "eligible": 0, "exported": 0,
+            "already_synced": 0, "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
+        }
+        if settings.FEISHU_BITABLE_AUTO_EXPORT:
+            try:
+                bitable_sync = await run_in_threadpool(
+                    _sync_candidates_to_bitable, query_id, candidates,
+                    query_data["text"].strip()[:80] or "未命名岗位",
+                )
+            except Exception as sync_error:
+                logger.warning(f"筛选完成，但自动写入多维表格失败: {sync_error}")
+                ops_store.log("bitable_export", "failed", str(sync_error))
+                bitable_sync = {
+                    "status": "failed", "eligible": sum(
+                        1 for candidate in candidates
+                        if float(candidate.get("overall_score", 0)) >= settings.FEISHU_EXPORT_MIN_SCORE
+                    ),
+                    "exported": 0, "already_synced": 0,
+                    "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
+                    "message": str(sync_error),
+                }
+
+        screening_result = ScreeningResult(
             query_id=query_id,
             query_text=query_data["text"],
             total_candidates=formatted_results["total_candidates"],
@@ -495,7 +557,10 @@ async def get_screening_results(query_id: str):
                 "job_category": query_metadata.job_category or "其他",
                 "lookback_days": settings.SCREENING_LOOKBACK_DAYS,
             },
+            bitable_sync=bitable_sync,
         )
+        query_data["screening_result"] = screening_result.model_dump(mode="json")
+        return screening_result
 
     except HTTPException:
         raise
@@ -700,13 +765,22 @@ async def receive_feishu_card_action(request: Request):
 
 @router.post("/operations/bitable-export")
 async def export_to_bitable(request: BitableExportRequest):
-    """Run the selected screening query and export qualifying candidates."""
+    """Idempotently sync the cached screening result without another LLM run."""
     try:
         screening = await get_screening_results(request.query_id)
-        candidates = [candidate.dict() for candidate in screening.candidates]
-        count = await run_in_threadpool(bitable_writer.write_candidates, candidates, request.job_name)
-        ops_store.log("bitable_export", "success", f"岗位 {request.job_name} 写入 {count} 位候选人")
-        return {"exported": count, "message": f"已写入 {count} 条候选人记录"}
+        candidates = [candidate.model_dump() for candidate in screening.candidates]
+        sync_result = await run_in_threadpool(
+            _sync_candidates_to_bitable, request.query_id, candidates, request.job_name,
+        )
+        cached = query_storage.get(request.query_id, {}).get("screening_result")
+        if isinstance(cached, dict):
+            cached["bitable_sync"] = sync_result
+        exported = sync_result["exported"]
+        message = (
+            f"已写入 {exported} 条高分候选人记录"
+            if exported else "多维表格已是最新，无需重复写入"
+        )
+        return {**sync_result, "message": message}
     except HTTPException:
         raise
     except PermissionError as e:

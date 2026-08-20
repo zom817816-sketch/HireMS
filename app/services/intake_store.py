@@ -59,6 +59,12 @@ class IntakeStore:
                 kind TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL)"""
             )
             conn.execute(
+                """CREATE TABLE IF NOT EXISTS bitable_sync (
+                query_id TEXT NOT NULL, candidate_id TEXT NOT NULL,
+                job_name TEXT NOT NULL, synced_at TEXT NOT NULL,
+                PRIMARY KEY(query_id, candidate_id))"""
+            )
+            conn.execute(
                 """CREATE TABLE IF NOT EXISTS resume_identity (
                 resume_id TEXT PRIMARY KEY, phone_key TEXT, email_key TEXT,
                 name_key TEXT, display_name TEXT, filename TEXT,
@@ -283,6 +289,35 @@ class IntakeStore:
             for row in rows
         ]
 
+    def bitable_synced_candidate_ids(self, query_id: str) -> set[str]:
+        """Return candidates already written for one screening batch."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT candidate_id FROM bitable_sync WHERE query_id=?", (query_id,)
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def mark_bitable_synced(
+        self, query_id: str, candidate_ids: list[str], job_name: str,
+    ) -> None:
+        """Atomically record a successful Bitable batch for idempotent retries."""
+        if not candidate_ids:
+            return
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.executemany(
+                """INSERT OR IGNORE INTO bitable_sync
+                (query_id, candidate_id, job_name, synced_at) VALUES (?, ?, ?, ?)""",
+                [(query_id, candidate_id, job_name, now) for candidate_id in candidate_ids],
+            )
+
+    def delete_bitable_sync(self, candidate_id: str) -> int:
+        """Remove local sync history when a candidate is permanently deleted."""
+        with self._connect() as conn:
+            return conn.execute(
+                "DELETE FROM bitable_sync WHERE candidate_id=?", (candidate_id,)
+            ).rowcount
+
     def upsert_candidate(self, candidate: dict, job_name: str) -> dict:
         """Create a queue item once; a newer screen refreshes its scoring payload."""
         now = datetime.now().isoformat(timespec="seconds")
@@ -350,6 +385,7 @@ class IntakeStore:
             notification_count = conn.execute(
                 "DELETE FROM notification_log WHERE candidate_id = ?", (candidate_id,)
             ).rowcount
+            conn.execute("DELETE FROM bitable_sync WHERE candidate_id = ?", (candidate_id,))
             conn.execute("DELETE FROM candidate_workflow WHERE candidate_id = ?", (candidate_id,))
         return {"interviews": interview_count, "notifications": notification_count}
 
