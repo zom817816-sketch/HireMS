@@ -7,6 +7,7 @@ from app.core.deduplication import (
 from app.core.retriever import Retriever
 from app.models.metadata import ResumeMetadata
 from app.services.intake_store import IntakeStore
+from app.services.resume_file_store import ResumeFileStore
 
 
 def test_normalized_identity_and_content_fingerprint():
@@ -32,10 +33,12 @@ def test_identity_store_tracks_content_identity_and_same_name(tmp_path):
 
 def test_ingestion_skips_exact_duplicate_before_second_llm_call(tmp_path):
     store = IntakeStore(str(tmp_path / "dedup.sqlite3"))
+    file_store = ResumeFileStore(tmp_path / "resumes")
     metadata = ResumeMetadata(name="张三", email="one@example.com", phone="13800000000")
 
     with (
         patch.object(routes, "ops_store", store),
+        patch.object(routes, "resume_file_store", file_store),
         patch.object(routes, "resume_storage", {}),
         patch.object(routes, "_extract_resume_text", return_value="张三 Python 工程师"),
         patch.object(routes.metadata_extractor, "extract_metadata", return_value=metadata) as extract,
@@ -55,10 +58,12 @@ def test_ingestion_skips_exact_duplicate_before_second_llm_call(tmp_path):
 
 def test_ingestion_updates_same_email_with_stable_resume_id(tmp_path):
     store = IntakeStore(str(tmp_path / "dedup.sqlite3"))
+    file_store = ResumeFileStore(tmp_path / "resumes")
     metadata = ResumeMetadata(name="张三", email="ONE@example.com")
 
     with (
         patch.object(routes, "ops_store", store),
+        patch.object(routes, "resume_file_store", file_store),
         patch.object(routes, "resume_storage", {}),
         patch.object(routes, "_extract_resume_text", side_effect=["第一版简历", "第二版简历"]),
         patch.object(routes.metadata_extractor, "extract_metadata", return_value=metadata),

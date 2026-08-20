@@ -20,11 +20,12 @@ class TestAPI:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
+    @patch('app.api.routes.resume_file_store')
     @patch('app.api.routes.ops_store')
     @patch('app.api.routes.document_parser')
     @patch('app.api.routes.metadata_extractor')
     @patch('app.api.routes.retriever')
-    def test_upload_resume(self, mock_retriever, mock_metadata_extractor, mock_document_parser, mock_ops_store):
+    def test_upload_resume(self, mock_retriever, mock_metadata_extractor, mock_document_parser, mock_ops_store, mock_file_store):
         """测试上传简历接口"""
         # Mock各个组件
         mock_document_parser.parse_pdf.return_value = "这是一份简历文本"
@@ -38,6 +39,11 @@ class TestAPI:
         mock_ops_store.find_resume_by_fingerprint.return_value = None
         mock_ops_store.find_resume_by_identity.return_value = None
         mock_ops_store.find_resumes_by_name.return_value = []
+        mock_file_store.save.return_value = {
+            "resume_id": "resume-test", "original_filename": "test_resume.pdf",
+            "relative_path": "resume-test/original.pdf", "media_type": "application/pdf",
+            "size_bytes": len(test_content) if "test_content" in locals() else 0,
+        }
 
         # 创建测试文件
         test_content = b"This is a test resume file"
