@@ -222,7 +222,8 @@ class TestAPI:
         }
 
         # 发送获取结果请求
-        response = client.get("/api/v1/results/test_query_id")
+        with patch('app.api.routes.settings.FEISHU_BITABLE_AUTO_EXPORT', False):
+            response = client.get("/api/v1/results/test_query_id")
         
         # 验证响应
         assert response.status_code == 200

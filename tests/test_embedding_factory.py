@@ -95,7 +95,9 @@ def test_local_provider_builds_local_embeddings(monkeypatch):
     assert created["emb"] is embeddings
     assert embeddings.kwargs["model_name"] == "BAAI/bge-small-zh-v1.5"
     assert embeddings.kwargs["encode_kwargs"] == {"normalize_embeddings": True}
-    assert embeddings.kwargs["model_kwargs"] == {"device": "cpu"}
+    assert embeddings.kwargs["model_kwargs"] == {
+        "device": "cpu", "local_files_only": True,
+    }
     assert embeddings.kwargs["query_instruction"]
     # local 后端维度由模型决定，工厂不返回固定值
     assert dims is None

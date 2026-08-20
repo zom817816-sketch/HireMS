@@ -47,7 +47,7 @@ def test_full_system_pipeline():
         # Mock LLM客户端的响应
         with patch.object(llm_client, 'generate_text') as mock_generate:
             # 设置不同的响应
-            def generate_text_side_effect(prompt):
+            def generate_text_side_effect(prompt, **_kwargs):
                 if "简历文本中提取元数据" in prompt:
                     return '{"name": "张三", "email": "zhangsan@example.com", "skills": ["Python", "Django"], "work_experience": [], "education": [], "projects": [], "languages": [], "certifications": [], "preferred_locations": [], "additional_info": null, "address": null, "expected_salary": null, "phone": null, "summary": null}'
                 elif "自然语言查询解析" in prompt:
