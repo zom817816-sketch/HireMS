@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta, timezone
 from app.core.vector_store import VectorStoreManager
 from app.core.metadata_utils import deserialize_metadata
 from app.core.normalization import normalize_resume_metadata
@@ -62,7 +63,16 @@ class Retriever:
             logger.error(f"Failed to remove resume {resume_id} from vector store: {e}")
             raise
 
-    def retrieve(self, query_metadata: QueryMetadata, n_results: int = 10) -> List[Dict[str, Any]]:
+    def get_indexed_resume(self, resume_id: str) -> Dict[str, Any] | None:
+        """Read one indexed resume for metadata migration without an LLM call."""
+        raw = self.vector_store_manager.get_documents("resumes", [resume_id])
+        formatted = self._format_results(raw)
+        return formatted[0] if formatted else None
+
+    def retrieve(
+        self, query_metadata: QueryMetadata, n_results: int = 10,
+        lookback_days: int | None = None,
+    ) -> List[Dict[str, Any]]:
         """
         根据查询元数据检索相关简历
         
@@ -77,16 +87,33 @@ class Retriever:
             # 将查询元数据转换为查询文本
             query_text = self._convert_query_to_text(query_metadata)
             
-            # 执行语义检索
+            # Apply the broad role category and import-time window before vector ranking.
             collection_name = "resumes"
+            cutoff_epoch = None
+            where = None
+            if query_metadata.job_category and lookback_days:
+                cutoff_epoch = int(
+                    (datetime.now(timezone.utc) - timedelta(days=lookback_days)).timestamp()
+                )
+                where = {"$and": [
+                    {"job_category": {"$eq": query_metadata.job_category}},
+                    {"imported_at_epoch": {"$gte": cutoff_epoch}},
+                ]}
             results = self.vector_store_manager.query_collection(
                 collection_name=collection_name,
                 query_texts=[query_text],
-                n_results=n_results
+                n_results=n_results,
+                where=where,
             )
             
             # 格式化结果
             formatted_results = self._format_results(results)
+            if cutoff_epoch is not None:
+                formatted_results = [
+                    item for item in formatted_results
+                    if item.get("metadata", {}).get("job_category") == query_metadata.job_category
+                    and int(item.get("metadata", {}).get("imported_at_epoch") or 0) >= cutoff_epoch
+                ]
             
             logger.info(f"Retrieved {len(formatted_results)} resumes")
             return formatted_results
@@ -140,6 +167,9 @@ class Retriever:
             
         if query_metadata.custom_conditions:
             query_parts.append(f"其他要求: {query_metadata.custom_conditions}")
+
+        if query_metadata.job_category:
+            query_parts.append(f"岗位类别: {query_metadata.job_category}")
             
         # 如果没有特定的查询条件，使用关键词作为默认查询
         if not query_parts:

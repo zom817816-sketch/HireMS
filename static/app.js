@@ -7,6 +7,11 @@ let toastTimer = null;
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#039;",'"':"&quot;"}[char]));
 const stripMarkdown = (value) => String(value || "").replace(/[#*_`>-]/g, "").replace(/\n+/g, " ");
+const importDate = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("zh-CN", {year: "numeric", month: "2-digit", day: "2-digit"}).format(date);
+};
 
 function notify(message) {
   const toast = $("toast");
@@ -149,13 +154,16 @@ function actionsFor(candidate) {
 function renderResults(data) {
   const candidates = data.candidates || [];
   currentResults = candidates;
-  $("result-meta").textContent = `${candidates.length} 位匹配候选人`;
+  const scope = data.recall_scope || {};
+  const scopeText = scope.job_category ? ` · ${scope.job_category} · 近 ${scope.lookback_days || 60} 天` : "";
+  $("result-meta").textContent = `${candidates.length} 位匹配候选人${scopeText}`;
   $("export-btn").disabled = !candidates.length;
   $("results").innerHTML = candidates.length ? candidates.map((candidate, index) => {
     const score = Math.round(Number(candidate.overall_score || 0) * 100);
-    const tags = (candidate.skills || []).slice(0, 6).map((skill) => `<span class="tag">${escapeHtml(skill)}</span>`).join("");
-    return `<article class="candidate enter" style="animation-delay:${index * 80}ms" id="candidate-${candidate.id}"><div class="candidate-rank">RANK<b>${String(candidate.rank || 0).padStart(2, "0")}</b></div><div><div class="candidate-name">${escapeHtml(candidate.name || "未识别姓名")}</div><div class="candidate-contact">${escapeHtml(candidate.email || "未提供邮箱")}${candidate.phone ? ` · ${escapeHtml(candidate.phone)}` : ""}</div><div class="tags">${tags}</div></div><div class="candidate-summary">${escapeHtml(stripMarkdown(candidate.analysis) || "已完成基础匹配，等待 HR 复核简历细节。")}</div><div class="score-orbit" style="--score:${score}%"><strong>${score}</strong><small>MATCH / 100</small></div>${actionsFor(candidate)}</article>`;
-  }).join("") : '<div class="empty-state">本次没有候选人通过条件。<span>可以放宽岗位条件，或先同步更多简历。</span></div>';
+    const tags = [candidate.job_category || "其他", ...(candidate.skills || [])].slice(0, 6).map((skill) => `<span class="tag">${escapeHtml(skill)}</span>`).join("");
+    const imported = importDate(candidate.imported_at);
+    return `<article class="candidate enter" style="animation-delay:${index * 80}ms" id="candidate-${candidate.id}"><div class="candidate-rank">RANK<b>${String(candidate.rank || 0).padStart(2, "0")}</b></div><div><div class="candidate-name">${escapeHtml(candidate.name || "未识别姓名")}</div><div class="candidate-contact">${escapeHtml(candidate.email || "未提供邮箱")}${candidate.phone ? ` · ${escapeHtml(candidate.phone)}` : ""}${imported ? ` · 导入 ${escapeHtml(imported)}` : ""}</div><div class="tags">${tags}</div></div><div class="candidate-summary">${escapeHtml(stripMarkdown(candidate.analysis) || "已完成基础匹配，等待 HR 复核简历细节。")}</div><div class="score-orbit" style="--score:${score}%"><strong>${score}</strong><small>MATCH / 100</small></div>${actionsFor(candidate)}</article>`;
+  }).join("") : '<div class="empty-state">本次没有候选人通过条件。<span>系统只召回最近两个月导入且岗位类别一致的简历；可检查类别、时间窗口或先同步更多简历。</span></div>';
 }
 
 async function runQuery() {

@@ -49,7 +49,8 @@ class ResultFormatter:
             "locations": query_metadata.locations,
             "required_languages": query_metadata.required_languages,
             "required_certifications": query_metadata.required_certifications,
-            "custom_conditions": query_metadata.custom_conditions
+            "custom_conditions": query_metadata.custom_conditions,
+            "job_category": query_metadata.job_category,
         }
 
     def _format_candidates(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -89,7 +90,9 @@ class ResultFormatter:
                     "education": education,
                     "projects": projects,
                     "languages": languages,
-                    "certifications": certifications
+                    "certifications": certifications,
+                    "job_category": metadata.get("job_category", "其他"),
+                    "imported_at": metadata.get("imported_at"),
                 }
             }
             formatted_candidates.append(formatted_candidate)

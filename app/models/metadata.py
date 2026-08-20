@@ -50,6 +50,8 @@ class ResumeMetadata(BaseModel):
     age: Optional[int] = None
     role_tags: List[str] = Field(default_factory=list)
     industry_tags: List[str] = Field(default_factory=list)
+    job_category: str = "其他"
+    job_category_version: int = 2
 
     @field_validator(
         "work_experience", "education", "skills", "projects", "languages",
@@ -104,3 +106,4 @@ class QueryMetadata(BaseModel):
     required_industry_tags: List[str] = []
     full_time_education: Optional[bool] = None
     max_age: Optional[int] = None
+    job_category: Optional[str] = None

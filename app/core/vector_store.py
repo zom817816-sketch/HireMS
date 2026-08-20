@@ -163,6 +163,18 @@ class VectorStoreManager:
             logger.error(f"Failed to delete documents from collection {collection_name}: {e}")
             raise
 
+    def get_documents(self, collection_name: str, ids: List[str]) -> Dict[str, Any]:
+        """Read documents and metadata by stable IDs without generating embeddings."""
+        if not ids:
+            return {"ids": [], "documents": [], "metadatas": []}
+        collection = self.get_collection(collection_name)
+        result = collection.get(ids=ids, include=["documents", "metadatas"])
+        return {
+            "ids": result.get("ids", []),
+            "documents": result.get("documents", []),
+            "metadatas": result.get("metadatas", []),
+        }
+
     def query_collection(
         self,
         collection_name: str,

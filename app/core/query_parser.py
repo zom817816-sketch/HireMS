@@ -80,6 +80,7 @@ class QueryParser:
 - required_languages: 语言要求列表
 - required_certifications: 证书要求列表
 - custom_conditions: 其他自定义条件
+- job_category: 教育培训公司的宽岗位类别，只能填写“销售”“教师”“教务学管”“运营”“市场”“管理”“产品技术”“职能”或“其他”
 
 请严格按照以下JSON格式返回结果，不要包含其他文本：
 {{
@@ -94,7 +95,8 @@ class QueryParser:
   "locations": ["北京", "上海"],
   "required_languages": ["中文", "英语"],
   "required_certifications": ["软件设计师"],
-  "custom_conditions": "有团队管理经验者优先"
+  "custom_conditions": "有团队管理经验者优先",
+  "job_category": "其他"
 }}
 
 只返回JSON，不要包含其他解释文本。

@@ -75,6 +75,17 @@ class IntakeStore:
                 relative_path TEXT NOT NULL, media_type TEXT NOT NULL,
                 size_bytes INTEGER NOT NULL, updated_at TEXT NOT NULL)"""
             )
+            identity_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(resume_identity)").fetchall()
+            }
+            if "job_category" not in identity_columns:
+                conn.execute("ALTER TABLE resume_identity ADD COLUMN job_category TEXT NOT NULL DEFAULT ''")
+            if "imported_at" not in identity_columns:
+                conn.execute("ALTER TABLE resume_identity ADD COLUMN imported_at TEXT NOT NULL DEFAULT ''")
+            if "imported_at_epoch" not in identity_columns:
+                conn.execute("ALTER TABLE resume_identity ADD COLUMN imported_at_epoch INTEGER NOT NULL DEFAULT 0")
+            if "job_category_version" not in identity_columns:
+                conn.execute("ALTER TABLE resume_identity ADD COLUMN job_category_version INTEGER NOT NULL DEFAULT 0")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_phone ON resume_identity(phone_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_email ON resume_identity(email_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_name ON resume_identity(name_key)")
@@ -82,14 +93,20 @@ class IntakeStore:
     def find_resume_by_fingerprint(self, fingerprint: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute(
-                """SELECT f.resume_id, i.display_name, i.filename, i.created_at, i.updated_at
+                """SELECT f.resume_id, i.display_name, i.filename, i.created_at, i.updated_at,
+                i.job_category, i.imported_at, i.imported_at_epoch, i.job_category_version
                 FROM resume_fingerprint f LEFT JOIN resume_identity i ON i.resume_id=f.resume_id
                 WHERE f.fingerprint=?""",
                 (fingerprint,),
             ).fetchone()
         if not row:
             return None
-        return {"resume_id": row[0], "name": row[1] or "", "filename": row[2] or "", "created_at": row[3], "updated_at": row[4]}
+        return {
+            "resume_id": row[0], "name": row[1] or "", "filename": row[2] or "",
+            "created_at": row[3], "updated_at": row[4], "job_category": row[5] or "",
+            "imported_at": row[6] or "", "imported_at_epoch": int(row[7] or 0),
+            "job_category_version": int(row[8] or 0),
+        }
 
     def find_resume_by_identity(self, phone_key: str = "", email_key: str = "") -> dict | None:
         clauses, params = [], []
@@ -103,12 +120,17 @@ class IntakeStore:
             return None
         with self._connect() as conn:
             row = conn.execute(
-                f"SELECT resume_id, display_name, filename, created_at, updated_at FROM resume_identity WHERE {' OR '.join(clauses)} ORDER BY updated_at DESC LIMIT 1",
+                f"SELECT resume_id, display_name, filename, created_at, updated_at, job_category, imported_at, imported_at_epoch, job_category_version FROM resume_identity WHERE {' OR '.join(clauses)} ORDER BY updated_at DESC LIMIT 1",
                 tuple(params),
             ).fetchone()
         if not row:
             return None
-        return {"resume_id": row[0], "name": row[1] or "", "filename": row[2] or "", "created_at": row[3], "updated_at": row[4]}
+        return {
+            "resume_id": row[0], "name": row[1] or "", "filename": row[2] or "",
+            "created_at": row[3], "updated_at": row[4], "job_category": row[5] or "",
+            "imported_at": row[6] or "", "imported_at_epoch": int(row[7] or 0),
+            "job_category_version": int(row[8] or 0),
+        }
 
     def find_resumes_by_name(self, name_key: str, exclude_id: str = "") -> list[dict]:
         if not name_key:
@@ -124,9 +146,13 @@ class IntakeStore:
 
     def record_resume_identity(
         self, resume_id: str, fingerprint: str, phone_key: str, email_key: str,
-        name_key: str, display_name: str, filename: str,
+        name_key: str, display_name: str, filename: str, job_category: str = "",
+        imported_at: str = "", imported_at_epoch: int = 0,
+        job_category_version: int = 0,
     ) -> None:
         now = datetime.now().isoformat(timespec="seconds")
+        effective_imported_at = imported_at or now
+        effective_imported_epoch = imported_at_epoch or int(datetime.now().timestamp())
         with self._connect() as conn:
             existing = conn.execute(
                 "SELECT created_at FROM resume_identity WHERE resume_id=?", (resume_id,)
@@ -134,13 +160,21 @@ class IntakeStore:
             created_at = existing[0] if existing else now
             conn.execute(
                 """INSERT INTO resume_identity
-                (resume_id, phone_key, email_key, name_key, display_name, filename, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (resume_id, phone_key, email_key, name_key, display_name, filename,
+                created_at, updated_at, job_category, imported_at, imported_at_epoch,
+                job_category_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(resume_id) DO UPDATE SET phone_key=excluded.phone_key,
                 email_key=excluded.email_key, name_key=excluded.name_key,
                 display_name=excluded.display_name, filename=excluded.filename,
-                updated_at=excluded.updated_at""",
-                (resume_id, phone_key, email_key, name_key, display_name, filename, created_at, now),
+                updated_at=excluded.updated_at, job_category=excluded.job_category,
+                imported_at=excluded.imported_at, imported_at_epoch=excluded.imported_at_epoch,
+                job_category_version=excluded.job_category_version""",
+                (
+                    resume_id, phone_key, email_key, name_key, display_name, filename,
+                    created_at, now, job_category, effective_imported_at, effective_imported_epoch,
+                    job_category_version,
+                ),
             )
             conn.execute(
                 "INSERT OR IGNORE INTO resume_fingerprint VALUES (?, ?, ?, ?)",
@@ -150,12 +184,32 @@ class IntakeStore:
     def list_resume_identities(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT resume_id, filename, display_name, created_at, updated_at FROM resume_identity ORDER BY updated_at DESC"
+                """SELECT resume_id, filename, display_name, created_at, updated_at,
+                job_category, imported_at, imported_at_epoch, job_category_version
+                FROM resume_identity ORDER BY updated_at DESC"""
             ).fetchall()
         return [
-            {"resume_id": row[0], "filename": row[1] or "", "name": row[2] or "", "created_at": row[3], "updated_at": row[4]}
+            {
+                "resume_id": row[0], "filename": row[1] or "", "name": row[2] or "",
+                "created_at": row[3], "updated_at": row[4], "job_category": row[5] or "",
+                "imported_at": row[6] or "", "imported_at_epoch": int(row[7] or 0),
+                "job_category_version": int(row[8] or 0),
+            }
             for row in rows
         ]
+
+    def update_resume_recall_metadata(
+        self, resume_id: str, job_category: str, imported_at: str, imported_at_epoch: int,
+        job_category_version: int = 0,
+    ) -> None:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE resume_identity SET job_category=?, imported_at=?,
+                imported_at_epoch=?, job_category_version=? WHERE resume_id=?""",
+                (job_category, imported_at, imported_at_epoch, job_category_version, resume_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(resume_id)
 
     def delete_resume_identity(self, resume_id: str) -> None:
         with self._connect() as conn:

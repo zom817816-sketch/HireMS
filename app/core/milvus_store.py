@@ -14,6 +14,7 @@ Milvus / Zilliz Cloud 向量数据库管理模块
 依赖 pymilvus 的 MilvusClient（轻量客户端，兼容本地 Milvus 与 Zilliz Cloud）。
 """
 from typing import List, Dict, Any, Optional
+import json
 
 from loguru import logger
 
@@ -24,6 +25,27 @@ from app.core.embedding_factory import create_embeddings, probe_embedding_dimens
 # 单条 VARCHAR 字段的最大长度（document 文本可能较长）
 _DOCUMENT_MAX_LENGTH = 65535
 _ID_MAX_LENGTH = 512
+
+
+def _milvus_filter_from_where(where: Optional[Dict[str, Any]]) -> str:
+    """Translate the small Chroma filter subset used by resume recall."""
+    if not where:
+        return ""
+    if "$and" in where:
+        parts = [_milvus_filter_from_where(item) for item in where["$and"]]
+        return " and ".join(f"({part})" for part in parts if part)
+    operators = {"$eq": "==", "$gte": ">=", "$gt": ">", "$lte": "<=", "$lt": "<"}
+    expressions = []
+    for field, condition in where.items():
+        if not isinstance(condition, dict):
+            condition = {"$eq": condition}
+        for operator, value in condition.items():
+            if operator not in operators:
+                raise ValueError(f"Unsupported Milvus metadata operator: {operator}")
+            key = json.dumps(str(field), ensure_ascii=False)
+            encoded = json.dumps(value, ensure_ascii=False)
+            expressions.append(f"metadata[{key}] {operators[operator]} {encoded}")
+    return " and ".join(expressions)
 
 
 class MilvusVectorStoreManager:
@@ -204,6 +226,23 @@ class MilvusVectorStoreManager:
             logger.error(f"Failed to delete documents from Milvus collection {collection_name}: {e}")
             raise
 
+    def get_documents(self, collection_name: str, ids: List[str]) -> Dict[str, Any]:
+        """Read documents and JSON metadata by stable IDs without vector search."""
+        if not ids:
+            return {"ids": [], "documents": [], "metadatas": []}
+        self.get_collection(collection_name)
+        encoded_ids = ", ".join(json.dumps(str(item), ensure_ascii=False) for item in ids)
+        rows = self.client.query(
+            collection_name=collection_name,
+            filter=f"id in [{encoded_ids}]",
+            output_fields=["id", "document", "metadata"],
+        )
+        return {
+            "ids": [row.get("id") for row in rows],
+            "documents": [row.get("document", "") for row in rows],
+            "metadatas": [row.get("metadata", {}) or {} for row in rows],
+        }
+
     def query_collection(
         self,
         collection_name: str,
@@ -229,11 +268,17 @@ class MilvusVectorStoreManager:
             logger.info(f"Generating embeddings for {len(query_texts)} query texts (Milvus)")
             query_embeddings = [self.embeddings.embed_query(text) for text in query_texts]
 
+            search_kwargs = {
+                "collection_name": collection_name,
+                "data": query_embeddings,
+                "limit": n_results,
+                "output_fields": ["document", "metadata"],
+            }
+            filter_expression = _milvus_filter_from_where(where)
+            if filter_expression:
+                search_kwargs["filter"] = filter_expression
             search_res = self.client.search(
-                collection_name=collection_name,
-                data=query_embeddings,
-                limit=n_results,
-                output_fields=["document", "metadata"],
+                **search_kwargs,
             )
 
             for hits in search_res:

@@ -48,7 +48,7 @@ class MetadataExtractor:
                 cached_result = self.cache_manager.get(cache_key)
                 if cached_result:
                     logger.info(f"Retrieved metadata from cache for key: {cache_key}")
-                    return ResumeMetadata(**cached_result)
+                    return ResumeMetadata(**normalize_resume_metadata(cached_result, source_text=resume_text))
             
             # 构造提示词
             prompt = self._create_extraction_prompt(resume_text)
@@ -109,6 +109,7 @@ class MetadataExtractor:
 - preferred_locations: 期望工作地点列表
 - summary: 个人简介
 - additional_info: 其他信息
+- job_category: 教育培训公司的宽岗位类别，只能填写“销售”“教师”“教务学管”“运营”“市场”“管理”“产品技术”“职能”或“其他”
 
 请严格按照以下JSON格式返回结果，不要包含其他文本：
 {{
@@ -147,7 +148,8 @@ class MetadataExtractor:
   "expected_salary": "20K-30K",
   "preferred_locations": ["北京", "上海"],
   "summary": "具有5年工作经验的软件工程师",
-  "additional_info": "其他信息"
+  "additional_info": "其他信息",
+  "job_category": "其他"
 }}
 
 只返回JSON，不要包含其他解释文本。

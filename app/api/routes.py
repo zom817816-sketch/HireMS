@@ -4,10 +4,11 @@ API 路由
 import asyncio
 import uuid
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 import os
 import tempfile
+import threading
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,6 +24,9 @@ from app.core.document_parser import DocumentParser
 from app.core.extractor import MetadataExtractor
 from app.core.llm_client import LLMClient
 from app.core.query_parser import QueryParser
+from app.core.normalization import (
+    JOB_CATEGORIES, JOB_CATEGORY_VERSION, normalize_resume_metadata,
+)
 from app.core.vector_store_factory import get_vector_store_manager
 from app.core.retriever import Retriever
 from app.core.filter import HardFilter
@@ -68,6 +72,8 @@ resume_file_store = ResumeFileStore()
 mail_intake = ImapResumeIntake(ops_store)
 bitable_writer = FeishuBitableWriter()
 feishu_workflow = FeishuWorkflowClient()
+_legacy_recall_migration_lock = threading.Lock()
+_legacy_recall_migration_done = False
 
 def _store_resume_original(resume_id: str, filename: str, content: bytes) -> dict:
     """Save an original and atomically switch its database association."""
@@ -98,6 +104,55 @@ def _resume_file_available(resume_id: str) -> bool:
 
 def _decorate_resume_file(candidate: dict) -> dict:
     return {**candidate, "has_resume_file": _resume_file_available(candidate.get("id", ""))}
+
+
+def _upgrade_legacy_recall_metadata() -> int:
+    """Backfill category/time on pre-feature vectors without calling the LLM."""
+    global _legacy_recall_migration_done
+    if _legacy_recall_migration_done:
+        return 0
+    with _legacy_recall_migration_lock:
+        if _legacy_recall_migration_done:
+            return 0
+        upgraded = 0
+        for identity in ops_store.list_resume_identities():
+            if (
+                identity.get("job_category") in JOB_CATEGORIES
+                and identity.get("imported_at_epoch")
+                and identity.get("job_category_version", 0) >= JOB_CATEGORY_VERSION
+            ):
+                continue
+            try:
+                indexed = retriever.get_indexed_resume(identity["resume_id"])
+                if not indexed:
+                    logger.warning(f"Legacy resume is missing from vector index: {identity['resume_id']}")
+                    continue
+                previous_metadata = dict(indexed.get("metadata", {}) or {})
+                previous_metadata.pop("job_category", None)
+                previous_metadata.pop("job_category_version", None)
+                metadata = normalize_resume_metadata(previous_metadata, indexed.get("text", ""))
+                raw_time = identity.get("created_at") or identity.get("updated_at")
+                imported = datetime.fromisoformat(raw_time) if raw_time else datetime.now().astimezone()
+                if imported.tzinfo is None:
+                    imported = imported.astimezone()
+                imported_utc = imported.astimezone(timezone.utc)
+                metadata.update({
+                    "imported_at": imported_utc.isoformat(timespec="seconds"),
+                    "imported_at_epoch": int(imported_utc.timestamp()),
+                })
+                retriever.add_resume(identity["resume_id"], indexed.get("text", ""), metadata)
+                ops_store.update_resume_recall_metadata(
+                    identity["resume_id"], metadata["job_category"],
+                    metadata["imported_at"], metadata["imported_at_epoch"],
+                    JOB_CATEGORY_VERSION,
+                )
+                upgraded += 1
+            except Exception as error:
+                logger.warning(f"Legacy recall metadata upgrade failed for {identity.get('resume_id')}: {error}")
+        _legacy_recall_migration_done = True
+        if upgraded:
+            ops_store.log("resume_metadata_migration", "success", f"已升级 {upgraded} 份历史简历的时间戳和岗位类别")
+        return upgraded
 
 
 WORKFLOW_ACTIONS = {
@@ -133,7 +188,13 @@ def _ingest_resume(filename: str, content: bytes, source: dict | None = None) ->
 
     fingerprint = resume_fingerprint(resume_text)
     exact_match = ops_store.find_resume_by_fingerprint(fingerprint)
-    if exact_match:
+    exact_match_is_indexed = bool(
+        exact_match
+        and exact_match.get("job_category") in JOB_CATEGORIES
+        and exact_match.get("imported_at_epoch")
+        and exact_match.get("job_category_version", 0) >= JOB_CATEGORY_VERSION
+    )
+    if exact_match_is_indexed:
         if not ops_store.get_resume_file(exact_match["resume_id"]):
             _store_resume_original(exact_match["resume_id"], filename, content)
         ops_store.log("resume_dedup", "skipped", f"重复简历已跳过：{filename} → {exact_match['resume_id']}")
@@ -148,14 +209,21 @@ def _ingest_resume(filename: str, content: bytes, source: dict | None = None) ->
     email_key = normalize_email(metadata.email)
     name_key = normalize_name(metadata.name)
     identity_match = ops_store.find_resume_by_identity(phone_key, email_key)
-    resume_id = identity_match["resume_id"] if identity_match else f"resume_{fingerprint[:32]}"
-    status = "updated" if identity_match else "created"
+    resume_id = (
+        exact_match["resume_id"] if exact_match
+        else identity_match["resume_id"] if identity_match
+        else f"resume_{fingerprint[:32]}"
+    )
+    status = "updated" if exact_match or identity_match else "created"
     possible_duplicate = bool(ops_store.find_resumes_by_name(name_key, exclude_id=resume_id))
 
+    imported_at = datetime.now(timezone.utc)
     metadata_dict.update({
         "content_fingerprint": fingerprint,
         "identity_phone": phone_key,
         "identity_email": email_key,
+        "imported_at": imported_at.isoformat(timespec="seconds"),
+        "imported_at_epoch": int(imported_at.timestamp()),
     })
     resume_storage[resume_id] = {
         "id": resume_id, "filename": filename, "text": resume_text,
@@ -164,6 +232,8 @@ def _ingest_resume(filename: str, content: bytes, source: dict | None = None) ->
     retriever.add_resume(resume_id, resume_text, metadata_dict)
     ops_store.record_resume_identity(
         resume_id, fingerprint, phone_key, email_key, name_key, metadata.name, filename,
+        metadata.job_category, metadata_dict["imported_at"], metadata_dict["imported_at_epoch"],
+        JOB_CATEGORY_VERSION,
     )
     _store_resume_original(resume_id, filename, content)
     if possible_duplicate:
@@ -244,6 +314,8 @@ async def list_resumes():
             "filename": data.get("filename", ""),
             "name": meta.get("name", ""),
             "created_at": data.get("created_at"),
+            "job_category": meta.get("job_category", "其他"),
+            "imported_at": meta.get("imported_at", ""),
         }
     items = [
         {**item, "has_resume_file": _resume_file_available(resume_id)}
@@ -351,8 +423,11 @@ async def get_screening_results(query_id: str):
         query_data = query_storage[query_id]
         query_metadata = QueryMetadata(**query_data["metadata"])
 
+        await run_in_threadpool(_upgrade_legacy_recall_metadata)
+
         retrieved_resumes = await run_in_threadpool(
-            retriever.retrieve, query_metadata, settings.SCREENING_RETRIEVAL_LIMIT
+            retriever.retrieve, query_metadata, settings.SCREENING_RETRIEVAL_LIMIT,
+            settings.SCREENING_LOOKBACK_DAYS,
         )
         filtered_resumes = await run_in_threadpool(hard_filter.filter_resumes, retrieved_resumes, query_metadata)
         scored_resumes = await run_in_threadpool(scorer.score_resumes, filtered_resumes, query_metadata)
@@ -390,6 +465,8 @@ async def get_screening_results(query_id: str):
                 "expected_salary": basic_info.get("expected_salary"),
                 "preferred_locations": basic_info.get("preferred_locations", []),
                 "analysis": candidate_data.get("analysis", ""),
+                "job_category": basic_info.get("job_category", query_metadata.job_category or "其他"),
+                "imported_at": basic_info.get("imported_at"),
                 "has_resume_file": _resume_file_available(candidate_data.get("id", "")),
             }
             candidates.append(candidate)
@@ -413,7 +490,11 @@ async def get_screening_results(query_id: str):
             query_text=query_data["text"],
             total_candidates=formatted_results["total_candidates"],
             candidates=candidates,
-            created_at=query_data["created_at"]
+            created_at=query_data["created_at"],
+            recall_scope={
+                "job_category": query_metadata.job_category or "其他",
+                "lookback_days": settings.SCREENING_LOOKBACK_DAYS,
+            },
         )
 
     except HTTPException:

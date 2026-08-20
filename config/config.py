@@ -117,6 +117,8 @@ class Settings:
     # 先从整个向量库召回候选池，再进行规则过滤/评分；只有最终靠前的候选人会调用 LLM 生成报告。
     SCREENING_RETRIEVAL_LIMIT: int = _positive_int_env("SCREENING_RETRIEVAL_LIMIT", 50)
     SCREENING_ANALYSIS_LIMIT: int = _positive_int_env("SCREENING_ANALYSIS_LIMIT", 10)
+    # Only resumes imported within this window participate in JD recall.
+    SCREENING_LOOKBACK_DAYS: int = _positive_int_env("SCREENING_LOOKBACK_DAYS", 60)
     # 单份报告同时使用服务端 token 上限和本地字符上限，避免卡片出现不完整长文。
     CANDIDATE_ANALYSIS_MAX_TOKENS: int = _positive_int_env("CANDIDATE_ANALYSIS_MAX_TOKENS", 360)
     CANDIDATE_ANALYSIS_MAX_CHARS: int = _positive_int_env("CANDIDATE_ANALYSIS_MAX_CHARS", 260)

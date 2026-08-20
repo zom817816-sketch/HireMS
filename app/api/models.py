@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
@@ -91,6 +91,8 @@ class Candidate(BaseModel):
     expected_salary: Optional[str] = None
     preferred_locations: List[str] = []
     analysis: str = ""
+    job_category: str = "其他"
+    imported_at: Optional[str] = None
     has_resume_file: bool = False
 
 
@@ -101,6 +103,7 @@ class ScreeningResult(BaseModel):
     total_candidates: int
     candidates: List[Candidate]
     created_at: datetime
+    recall_scope: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ErrorResponse(BaseModel):
