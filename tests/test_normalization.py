@@ -1,4 +1,4 @@
-from app.core.normalization import normalize_query, normalize_resume_metadata
+from app.core.normalization import normalize_job_category, normalize_query, normalize_resume_metadata
 from app.core.filter import HardFilter
 from app.models.metadata import QueryMetadata
 
@@ -24,3 +24,46 @@ def test_age_is_normalized_and_applied_as_a_hard_filter():
     assert query.max_age == 35
     candidate = {"id": "over", "text": "\u5e74\u9f8436\u5c81", "metadata": normalize_resume_metadata({}, source_text="\u5e74\u9f8436\u5c81")}
     assert HardFilter().filter_resumes([candidate], query) == []
+
+
+def test_education_job_categories_are_broad_and_stable():
+    assert normalize_job_category(source_text="曾任K12课程顾问，负责邀约和签单") == "销售"
+    assert normalize_job_category(source_text="初中数学老师，负责备课和授课") == "教师"
+    assert normalize_job_category(source_text="校区行政和财务支持") == "职能"
+
+
+def test_query_category_uses_keywords_and_is_not_over_specific():
+    sales = normalize_query({"keywords": ["少儿英语课程销售顾问"]})
+    teacher = normalize_query({"keywords": ["高中数学教师"]})
+    assert sales["job_category"] == "销售"
+    assert teacher["job_category"] == "教师"
+
+
+def test_description_sales_terms_do_not_override_a_structured_design_title():
+    data = normalize_resume_metadata({
+        "work_experience": [{
+            "title": "高级交互设计师",
+            "description": "优化咨询流程并提升落地页销售转化率",
+        }]
+    })
+    assert data["job_category"] == "产品技术"
+
+
+def test_resume_target_role_outranks_older_work_title():
+    data = normalize_resume_metadata(
+        {"work_experience": [{"title": "少儿口才老师"}]},
+        source_text="王晓玉｜求职方向：销售专员｜期望城市：上海\n工作经历：少儿口才老师",
+    )
+    assert data["job_category"] == "销售"
+
+
+def test_extended_education_company_categories():
+    cases = {
+        "学管师，负责家校服务和学员管理": "教务学管",
+        "校区运营，负责社群和活动执行": "运营",
+        "品牌市场经理，负责新媒体投放": "市场",
+        "校区校长，负责区域经营": "管理",
+        "高级后端工程师": "产品技术",
+        "招聘主管，负责薪酬绩效": "职能",
+    }
+    assert {text: normalize_job_category(source_text=text) for text in cases} == cases

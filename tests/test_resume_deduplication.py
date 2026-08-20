@@ -1,3 +1,4 @@
+import sqlite3
 from unittest.mock import MagicMock, patch
 
 from app.api import routes
@@ -29,6 +30,40 @@ def test_identity_store_tracks_content_identity_and_same_name(tmp_path):
     assert store.find_resumes_by_name("张三") == [
         {"resume_id": "resume-1", "name": "张三", "filename": "one.md"}
     ]
+
+
+def test_identity_store_records_import_timestamp_and_job_category(tmp_path):
+    store = IntakeStore(str(tmp_path / "dedup.sqlite3"))
+    store.record_resume_identity(
+        "resume-sales", "fp-sales", "", "sales@example.com", "李四", "李四", "sales.md",
+        "销售", "2026-08-20T10:00:00+00:00", 1787220000,
+    )
+
+    item = store.find_resume_by_fingerprint("fp-sales")
+    assert item["job_category"] == "销售"
+    assert item["imported_at"] == "2026-08-20T10:00:00+00:00"
+    assert item["imported_at_epoch"] == 1787220000
+
+
+def test_existing_identity_database_is_migrated_without_rebuild(tmp_path):
+    db_path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """CREATE TABLE resume_identity (
+            resume_id TEXT PRIMARY KEY, phone_key TEXT, email_key TEXT,
+            name_key TEXT, display_name TEXT, filename TEXT,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+        )
+
+    store = IntakeStore(str(db_path))
+    store.record_resume_identity(
+        "resume-teacher", "fp-teacher", "", "teacher@example.com", "王老师",
+        "王老师", "teacher.md", "教师", "2026-08-20T11:00:00+00:00", 1787223600,
+    )
+
+    migrated = store.find_resume_by_fingerprint("fp-teacher")
+    assert migrated["job_category"] == "教师"
+    assert migrated["imported_at_epoch"] == 1787223600
 
 
 def test_ingestion_skips_exact_duplicate_before_second_llm_call(tmp_path):
