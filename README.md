@@ -115,8 +115,11 @@ FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
 FEISHU_BITABLE_APP_TOKEN=app_xxx
 FEISHU_BITABLE_TABLE_ID=tbl_xxx
+FEISHU_BITABLE_AUTO_EXPORT=true
 FEISHU_EXPORT_MIN_SCORE=0.70
 ```
+
+筛选完成后，系统会自动把达到 `FEISHU_EXPORT_MIN_SCORE` 的候选人写入多维表格，并以“筛选批次 + 候选人”记录本地同步状态，重复读取结果或点击“重新同步多维表格”不会重复新增记录。自动写入直接复用本次筛选和 AI 报告，不会再次调用 LLM。新候选人消息卡片不再由 HireMS 直接发送，可在飞书多维表格中根据新增记录配置自动化。
 
 目标表建议包含：`姓名`、`邮箱`、`电话`、`岗位`、`匹配度`、`技能`、`期望地点`、`AI分析`、`处理状态`。应用必须拥有该多维表格的编辑权限。
 
