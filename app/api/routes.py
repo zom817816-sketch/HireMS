@@ -73,7 +73,7 @@ result_formatter = ResultFormatter()
 # 存储简历和查询结果的内存字典（在实际应用中应使用数据库）
 resume_storage: Dict[str, Any] = {}
 query_storage: Dict[str, Any] = {}
-ops_store = IntakeStore()
+ops_store = IntakeStore(settings.OPS_DB_PATH)
 resume_file_store = ResumeFileStore()
 mail_intake = ImapResumeIntake(ops_store)
 bitable_writer = FeishuBitableWriter()

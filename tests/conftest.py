@@ -7,6 +7,18 @@ pytest 公共配置
 """
 import os
 import hashlib
+import tempfile
+from pathlib import Path
+
+
+# Application services are created while test modules are imported. Point every
+# persistent local store at a per-test-session directory before that happens;
+# otherwise API fixture candidates (for example candidate_001 / 张三) would be
+# written into the developer's real data/hirems_ops.sqlite3 and shown by the UI.
+_TEST_RUNTIME_DIR = tempfile.TemporaryDirectory(prefix="hirems-tests-")
+_TEST_RUNTIME_PATH = Path(_TEST_RUNTIME_DIR.name)
+os.environ["HIREMS_OPS_DB_PATH"] = str(_TEST_RUNTIME_PATH / "hirems_ops.sqlite3")
+os.environ["RESUME_FILE_DIR"] = str(_TEST_RUNTIME_PATH / "resumes")
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 os.environ.setdefault("OPENAI_BASE_URL", "https://test.url/v1")

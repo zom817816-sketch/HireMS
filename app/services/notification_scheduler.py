@@ -11,7 +11,7 @@ from app.services.intake_store import IntakeStore
 
 class NotificationScheduler:
     def __init__(self) -> None:
-        self.store = IntakeStore()
+        self.store = IntakeStore(settings.OPS_DB_PATH)
         self.feishu = FeishuWorkflowClient()
         self.candidate_email = CandidateEmailNotifier()
         self.scheduler = None

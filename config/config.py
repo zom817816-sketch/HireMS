@@ -172,6 +172,9 @@ class Settings:
     CACHE_DIR: str = os.getenv("CACHE_DIR", "./cache")
     # Imported resume originals. Only paths relative to this directory are stored.
     RESUME_FILE_DIR: str = os.getenv("RESUME_FILE_DIR", "./data/resumes")
+    # Local workflow/audit database. Tests override this path before the app is
+    # imported so fixture candidates can never leak into the real Web UI.
+    OPS_DB_PATH: str = os.getenv("HIREMS_OPS_DB_PATH", "./data/hirems_ops.sqlite3")
 
     # 日志级别
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
