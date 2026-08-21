@@ -107,7 +107,7 @@ async function loadSystemSettings(fillForm = false) {
 }
 
 async function openSettings() {
-  try { await loadSystemSettings(true); $("settings-dialog").showModal(); }
+  try { await loadSystemSettings(true); $("settings-btn").classList.add("active"); $("settings-dialog").showModal(); }
   catch (error) { notify(`设置加载失败：${error.message}`); }
 }
 
@@ -418,6 +418,7 @@ $("summary-btn").addEventListener("click", () => runNotification("daily_summary"
 $("overdue-btn").addEventListener("click", () => runNotification("overdue"));
 $("settings-btn").addEventListener("click", openSettings);
 $("close-settings").addEventListener("click", () => $("settings-dialog").close());
+$("settings-dialog").addEventListener("close", () => $("settings-btn").classList.remove("active"));
 $("settings-form").addEventListener("submit", settingsForm);
 $("close-schedule").addEventListener("click", () => $("schedule-dialog").close());
 $("schedule-form").addEventListener("submit", scheduleForm);
