@@ -2,6 +2,7 @@ const API = "/api/v1";
 const $ = (id) => document.getElementById(id);
 let lastQueryId = null;
 let workflowCandidates = [];
+let systemSettings = {};
 let currentResults = [];
 let toastTimer = null;
 
@@ -77,6 +78,53 @@ async function loadStatus() {
     $("mail-dot").classList.toggle("on", mail);
     renderLogs(data.logs || []);
   } catch (_) {}
+}
+
+const parseSettingsList = (value) => [...new Set(value.split(/[\n,，;；]+/).map((item) => item.trim()).filter(Boolean))];
+const settingsListText = (values) => (values || []).join("\n");
+
+function renderSettingsConnections(connections = {}) {
+  const values = [connections.feishu_messages, connections.candidate_email, connections.calendar];
+  [...$("settings-connections").children].forEach((item, index) => {
+    item.classList.toggle("on", Boolean(values[index]));
+    item.title = values[index] ? "已配置" : "需在 .env 中补充凭据";
+  });
+}
+
+async function loadSystemSettings(fillForm = false) {
+  const data = await request(`${API}/settings`);
+  systemSettings = data;
+  if (fillForm) {
+    $("settings-hr-openids").value = settingsListText(data.hr_open_ids);
+    $("settings-hr-emails").value = settingsListText(data.hr_emails);
+    $("settings-interviewer-openids").value = settingsListText(data.default_interviewer_ids);
+    $("settings-location").value = data.default_interview_location || "线上";
+    $("settings-from-name").value = data.mail_from_name || "招聘团队";
+    $("settings-overdue-hours").value = data.overdue_hours || 48;
+    renderSettingsConnections(data.connections);
+  }
+  return data;
+}
+
+async function openSettings() {
+  try { await loadSystemSettings(true); $("settings-dialog").showModal(); }
+  catch (error) { notify(`设置加载失败：${error.message}`); }
+}
+
+async function settingsForm(event) {
+  event.preventDefault();
+  const payload = {
+    hr_open_ids: parseSettingsList($("settings-hr-openids").value),
+    hr_emails: parseSettingsList($("settings-hr-emails").value),
+    default_interviewer_ids: parseSettingsList($("settings-interviewer-openids").value),
+    default_interview_location: $("settings-location").value.trim() || "线上",
+    mail_from_name: $("settings-from-name").value.trim() || "招聘团队",
+    overdue_hours: Number($("settings-overdue-hours").value),
+  };
+  try {
+    systemSettings = await request(`${API}/settings`, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+    $("settings-dialog").close(); notify("系统设置已保存并立即生效"); await loadStatus();
+  } catch (error) { notify(`设置保存失败：${error.message}`); }
 }
 
 async function syncMailbox() {
@@ -268,8 +316,8 @@ function openSchedule(id, reschedule = false) {
   $("interview-round").value = interview?.round_name || candidate.next_round || "一面";
   $("interview-round").disabled = Boolean(interview);
   $("interview-start").value = localDatetime(start); $("interview-end").value = localDatetime(end);
-  $("interview-location").value = interview?.location || "线上";
-  $("interviewer-ids").value = (interview?.interviewer_ids || []).join(", ");
+  $("interview-location").value = interview?.location || systemSettings.default_interview_location || "线上";
+  $("interviewer-ids").value = (interview?.interviewer_ids || systemSettings.default_interviewer_ids || []).join(", ");
   $("interview-note").value = interview?.note || "";
   $("schedule-dialog").showModal();
 }
@@ -368,6 +416,9 @@ $("query-btn").addEventListener("click", runQuery);
 $("export-btn").addEventListener("click", exportBitable);
 $("summary-btn").addEventListener("click", () => runNotification("daily_summary"));
 $("overdue-btn").addEventListener("click", () => runNotification("overdue"));
+$("settings-btn").addEventListener("click", openSettings);
+$("close-settings").addEventListener("click", () => $("settings-dialog").close());
+$("settings-form").addEventListener("submit", settingsForm);
 $("close-schedule").addEventListener("click", () => $("schedule-dialog").close());
 $("schedule-form").addEventListener("submit", scheduleForm);
 $("close-feedback").addEventListener("click", () => $("feedback-dialog").close());
@@ -377,5 +428,5 @@ document.addEventListener("click", (event) => { const button = event.target.clos
 $("today").textContent = new Intl.DateTimeFormat("zh-CN", {year: "numeric", month: "long", day: "numeric", weekday: "short"}).format(new Date());
 setupMotion();
 setupFileIntake();
-Promise.all([checkHealth(), loadResumes(), loadStatus(), loadPipeline()]);
+Promise.all([checkHealth(), loadResumes(), loadStatus(), loadPipeline(), loadSystemSettings()]);
 setInterval(checkHealth, 30000);

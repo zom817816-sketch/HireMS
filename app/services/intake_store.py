@@ -59,6 +59,10 @@ class IntakeStore:
                 kind TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL)"""
             )
             conn.execute(
+                """CREATE TABLE IF NOT EXISTS system_setting (
+                key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)"""
+            )
+            conn.execute(
                 """CREATE TABLE IF NOT EXISTS bitable_sync (
                 query_id TEXT NOT NULL, candidate_id TEXT NOT NULL,
                 job_name TEXT NOT NULL, synced_at TEXT NOT NULL, record_id TEXT NOT NULL DEFAULT '',
@@ -105,6 +109,22 @@ class IntakeStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_phone ON resume_identity(phone_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_email ON resume_identity(email_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_name ON resume_identity(name_key)")
+
+    def get_system_setting(self, key: str) -> object | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM system_setting WHERE key = ?", (key,),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def set_system_setting(self, key: str, value: object) -> None:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO system_setting(key, value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+                (key, json.dumps(value, ensure_ascii=False), now),
+            )
 
     def find_resume_by_fingerprint(self, fingerprint: str) -> dict | None:
         with self._connect() as conn:

@@ -19,6 +19,7 @@ from app.api.models import (
     UploadResumeResponse, QueryRequest, QueryResponse, ScreeningResult, BitableExportRequest,
     CandidateActionRequest, InterviewCreateRequest, InterviewFeedbackRequest,
     InterviewRescheduleRequest, InterviewCancelRequest, OfferUpdateRequest,
+    SystemSettingsRequest,
 )
 from app.core.cache_manager import CacheManager
 from app.core.document_parser import DocumentParser
@@ -45,6 +46,7 @@ from app.services.intake_store import IntakeStore
 from app.services.resume_file_store import ResumeFileStore
 from app.services.feishu_workflow import FeishuWorkflowClient
 from app.services.candidate_email import CandidateEmailNotifier
+from app.services.runtime_settings import load_runtime_settings, save_runtime_settings
 from app.services.recruitment_state import (
     InvalidTransition, candidate_action_target, expected_next_round, feedback_target,
     offer_target, validate_schedule,
@@ -74,6 +76,7 @@ result_formatter = ResultFormatter()
 resume_storage: Dict[str, Any] = {}
 query_storage: Dict[str, Any] = {}
 ops_store = IntakeStore(settings.OPS_DB_PATH)
+runtime_preferences = load_runtime_settings(ops_store)
 resume_file_store = ResumeFileStore()
 mail_intake = ImapResumeIntake(ops_store)
 bitable_writer = FeishuBitableWriter()
@@ -511,6 +514,39 @@ async def operations_status():
         },
         "logs": ops_store.recent_logs(),
     }
+
+
+def _settings_response(values: dict) -> dict:
+    return {
+        **values,
+        "connections": {
+            "feishu_messages": feishu_workflow.configured_for_messages(),
+            "candidate_email": candidate_email.configured(),
+            "calendar": feishu_workflow.configured_for_calendar(),
+        },
+        "credentials_managed_in_env": True,
+    }
+
+
+@router.get("/settings")
+async def get_system_settings():
+    """Return safe recruiting preferences without exposing any credentials."""
+    try:
+        return _settings_response(load_runtime_settings(ops_store))
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        logger.warning(f"读取系统设置失败: {error}")
+        raise HTTPException(status_code=500, detail="本地系统设置损坏，请检查运行日志")
+
+
+@router.put("/settings")
+async def update_system_settings(request: SystemSettingsRequest):
+    """Persist safe recruiting preferences and apply them immediately."""
+    try:
+        values = save_runtime_settings(ops_store, request.model_dump())
+        ops_store.log("system_settings", "success", "已更新 HR 联系人与面试默认设置")
+        return _settings_response(values)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
 
 
 @router.post("/operations/mail-sync")

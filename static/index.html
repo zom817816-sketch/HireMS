@@ -24,6 +24,7 @@
       <a class="nav-item" data-section="pipeline" href="#pipeline"><span>04</span>流程推进</a>
       <a class="nav-item" data-section="activity" href="#activity"><span>05</span>运行轨迹</a>
     </nav>
+    <button id="settings-btn" class="settings-trigger" type="button"><span>✣</span><b>系统设置<small>CONTACT / DEFAULTS</small></b></button>
     <div class="sidebar-foot"><i></i><span id="health-text">正在连接本地服务</span></div>
   </aside>
 
@@ -108,6 +109,27 @@
 
     <section id="activity" class="activity-section story-section reveal"><div class="section-label"><span>05 / TRACE</span><h2>系统正在记住发生的一切</h2><p>可追溯的自动化，才值得被信任。</p></div><div id="activity-log" class="activity-log"><div class="empty-state">还没有运行记录。</div></div></section>
   </main>
+
+  <dialog id="settings-dialog" class="schedule-dialog settings-dialog">
+    <form id="settings-form" method="dialog">
+      <div class="dialog-head"><div><p class="eyebrow">SYSTEM / SETTINGS</p><h2>招聘协作设置</h2></div><button type="button" id="close-settings" class="close-button" aria-label="关闭">×</button></div>
+      <div class="settings-lead"><p>设置消息接收人和面试默认值，保存后立即生效。</p><div id="settings-connections" class="connection-pills"><span>飞书消息</span><span>候选人邮件</span><span>飞书日历</span></div></div>
+      <section class="settings-block"><div><b>01</b><h3>HR 联系人</h3><p>用于候选人卡片、汇总提醒和候选人回复邮件。</p></div><div>
+        <label>HR 飞书 OpenID <span>每行或逗号分隔，可填写多位 HR</span><textarea id="settings-hr-openids" rows="3" placeholder="ou_xxx&#10;ou_yyy"></textarea></label>
+        <label>HR 联系邮箱 <span>第一项将作为候选人邮件的 Reply-To</span><textarea id="settings-hr-emails" rows="2" placeholder="hr@example.com"></textarea></label>
+      </div></section>
+      <section class="settings-block"><div><b>02</b><h3>面试默认值</h3><p>安排面试时自动带入，仍可在单次日程中修改。</p></div><div class="form-grid">
+        <label>默认面试官 OpenID <span>每行或逗号分隔</span><textarea id="settings-interviewer-openids" rows="3" placeholder="ou_interviewer"></textarea></label>
+        <label>默认地点 / 会议链接<input id="settings-location" maxlength="100" placeholder="线上" /></label>
+      </div></section>
+      <section class="settings-block compact"><div><b>03</b><h3>通知偏好</h3><p>控制对外显示和待复核提醒节奏。</p></div><div class="form-grid">
+        <label>邮件发件人名称<input id="settings-from-name" maxlength="50" placeholder="招聘团队" /></label>
+        <label>超时未处理提醒<input id="settings-overdue-hours" type="number" min="1" max="720" /><span>小时，默认 48</span></label>
+      </div></section>
+      <div class="settings-security"><i>●</i><span>App ID、Secret、邮箱账号及密码仍由本机 <code>.env</code> 管理，不会显示或保存在网页设置中。</span></div>
+      <div class="dialog-foot"><span>业务设置保存在本地 SQLite 数据库。</span><button class="button signal" value="default">保存设置</button></div>
+    </form>
+  </dialog>
 
   <dialog id="schedule-dialog" class="schedule-dialog">
     <form id="schedule-form" method="dialog">

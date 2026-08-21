@@ -198,6 +198,9 @@ class Settings:
     MAIL_SMTP_PASSWORD: str = os.getenv("MAIL_SMTP_PASSWORD") or MAIL_IMAP_PASSWORD
     MAIL_SMTP_USE_SSL: bool = _bool_env("MAIL_SMTP_USE_SSL", True)
     MAIL_SMTP_FROM_NAME: str = os.getenv("MAIL_SMTP_FROM_NAME", "招聘团队")
+    HR_CONTACT_EMAILS: str = os.getenv("HR_CONTACT_EMAILS", "")
+    DEFAULT_INTERVIEWER_IDS: str = os.getenv("DEFAULT_INTERVIEWER_IDS", "")
+    DEFAULT_INTERVIEW_LOCATION: str = os.getenv("DEFAULT_INTERVIEW_LOCATION", "线上")
     CANDIDATE_EMAIL_NOTIFICATIONS: bool = _bool_env("CANDIDATE_EMAIL_NOTIFICATIONS", True)
 
     FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")

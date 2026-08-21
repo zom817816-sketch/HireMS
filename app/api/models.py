@@ -59,6 +59,15 @@ class OfferUpdateRequest(BaseModel):
     status: str
 
 
+class SystemSettingsRequest(BaseModel):
+    hr_open_ids: List[str] = Field(default_factory=list, max_length=50)
+    hr_emails: List[str] = Field(default_factory=list, max_length=50)
+    default_interviewer_ids: List[str] = Field(default_factory=list, max_length=50)
+    default_interview_location: str = Field(default="线上", max_length=100)
+    mail_from_name: str = Field(default="招聘团队", min_length=1, max_length=50)
+    overdue_hours: int = Field(default=48, ge=1, le=720)
+
+
 class QueryResponse(BaseModel):
     """筛选查询响应模型"""
     query_id: str

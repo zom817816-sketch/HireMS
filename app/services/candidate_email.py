@@ -27,6 +27,11 @@ class CandidateEmailNotifier:
         message = EmailMessage()
         message["From"] = formataddr((settings.MAIL_SMTP_FROM_NAME, settings.MAIL_SMTP_USER))
         message["To"] = recipient
+        contact_emails = [
+            item.strip() for item in settings.HR_CONTACT_EMAILS.split(",") if item.strip()
+        ]
+        if contact_emails:
+            message["Reply-To"] = contact_emails[0]
         message["Subject"] = subject
         message.set_content(content)
         if settings.MAIL_SMTP_USE_SSL:
