@@ -42,6 +42,18 @@ class InterviewFeedbackRequest(BaseModel):
     feedback: str = ""
 
 
+class InterviewRescheduleRequest(BaseModel):
+    interviewer_ids: List[str] = []
+    start_at: datetime
+    end_at: datetime
+    location: str = "线上"
+    note: str = ""
+
+
+class InterviewCancelRequest(BaseModel):
+    reason: str = ""
+
+
 class OfferUpdateRequest(BaseModel):
     status: str
 

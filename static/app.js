@@ -200,8 +200,11 @@ async function runQuery() {
 const lane = (status) => status === "待复核" ? "待复核" : ["通过", "安排面试", "面试中"].includes(status) ? "面试流程" : status.startsWith("Offer") ? "Offer" : "已淘汰";
 function pipelineActions(candidate) {
   let actions = "";
-  if (candidate.status === "待复核") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">面试</button>`;
-  else if (["通过", "安排面试", "面试中"].includes(candidate.status)) actions = `<button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排轮次</button><button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_pending">转 Offer</button>`;
+  if (candidate.status === "待复核") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="pass">通过</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button><button class="mini-button" data-candidate="${candidate.id}" data-action="schedule">安排一面</button>`;
+  else if (candidate.status === "通过") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="schedule">安排一面</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="reject">淘汰</button>`;
+  else if (candidate.status === "安排面试" && candidate.active_interview) actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="feedback">填写评价</button><button class="mini-button" data-candidate="${candidate.id}" data-action="reschedule">改期</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="cancel_interview">取消面试</button>`;
+  else if (candidate.status === "面试中" && candidate.pending_feedback) actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="feedback">更新待定评价</button>`;
+  else if (candidate.status === "面试中" && candidate.next_round) actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="schedule">安排${escapeHtml(candidate.next_round)}</button>`;
   else if (candidate.status === "Offer待发") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_sent">已发 Offer</button>`;
   else if (candidate.status === "Offer已发") actions = `<button class="mini-button pass" data-candidate="${candidate.id}" data-action="offer_accepted">接受</button><button class="mini-button reject" data-candidate="${candidate.id}" data-action="offer_rejected">拒绝</button>`;
   return `${resumeButton(candidate, "简历")}${actions}<button class="mini-button delete" data-candidate="${candidate.id}" data-action="delete">删除</button>`;
@@ -211,7 +214,7 @@ function renderPipeline() {
   const groups = {"待复核": [], "面试流程": [], "Offer": [], "已淘汰": []};
   workflowCandidates.forEach((candidate) => groups[lane(candidate.status)].push(candidate));
   $("pipeline-meta").textContent = `${workflowCandidates.length} 位候选人`;
-  $("pipeline-board").innerHTML = Object.entries(groups).map(([name, items]) => `<section class="pipeline-column"><h3>${name}<span>${items.length}</span></h3>${items.map((candidate) => `<article class="pipeline-item"><strong>${escapeHtml(candidate.name || "未识别姓名")}</strong><p>${escapeHtml(candidate.job_name || "")} · ${Math.round((candidate.overall_score || 0) * 100)} 分<br>${escapeHtml(candidate.status)}</p><div class="mini-actions">${pipelineActions(candidate)}</div></article>`).join("")}</section>`).join("");
+  $("pipeline-board").innerHTML = Object.entries(groups).map(([name, items]) => `<section class="pipeline-column"><h3>${name}<span>${items.length}</span></h3>${items.map((candidate) => { const interview = candidate.active_interview || candidate.pending_feedback; const interviewLine = interview ? `<span class="interview-signal">${escapeHtml(interview.round_name)} · ${escapeHtml(interview.status)} · ${escapeHtml(importDate(interview.start_at) || interview.start_at)}</span>` : ""; return `<article class="pipeline-item"><div class="pipeline-person"><strong>${escapeHtml(candidate.name || "未识别姓名")}</strong><em>${escapeHtml(candidate.status)}</em></div><p>${escapeHtml(candidate.job_name || "")} · ${Math.round((candidate.overall_score || 0) * 100)} 分</p>${interviewLine}<div class="mini-actions">${pipelineActions(candidate)}</div></article>`; }).join("")}</section>`).join("");
 }
 
 async function loadPipeline() {
@@ -225,6 +228,10 @@ async function candidateAction(id, action) {
     return;
   }
   if (action === "schedule") return openSchedule(id);
+  if (action === "feedback") return openFeedback(id);
+  if (action === "reschedule") return openSchedule(id, true);
+  if (action === "cancel_interview") return cancelInterview(id);
+  if (["offer_sent", "offer_accepted", "offer_rejected"].includes(action)) return offerAction(id, action);
   if (action === "delete") return deleteCandidate(id);
   try { await request(`${API}/workflow/candidates/${id}/action`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action})}); notify("候选人状态已推进"); await Promise.all([loadPipeline(), loadStatus()]); }
   catch (error) { notify(`更新失败：${error.message}`); }
@@ -245,21 +252,72 @@ async function deleteCandidate(id) {
 }
 
 function localDatetime(date) { const p = (n) => String(n).padStart(2, "0"); return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`; }
-function openSchedule(id) {
+function openSchedule(id, reschedule = false) {
   const candidate = workflowCandidates.find((item) => item.id === id);
   if (!candidate) { notify("请先从招聘流程中加载候选人"); return; }
+  const interview = reschedule ? candidate.active_interview : null;
+  if (reschedule && !interview) { notify("没有可以改期的已安排面试"); return; }
   $("schedule-candidate-id").value = id;
+  $("schedule-interview-id").value = interview?.interview_id || "";
   $("schedule-candidate-name").textContent = `候选人：${candidate.name || "未识别姓名"} · ${candidate.job_name || ""}`;
-  const start = new Date(Date.now() + 86400000); start.setHours(10, 0, 0, 0);
-  $("interview-start").value = localDatetime(start); $("interview-end").value = localDatetime(new Date(start.getTime() + 3600000));
+  $("schedule-title").textContent = interview ? "调整面试日程" : "安排面试";
+  $("schedule-submit").textContent = interview ? "确认改期" : "确认安排";
+  const start = interview ? new Date(interview.start_at) : new Date(Date.now() + 86400000);
+  if (!interview) start.setHours(10, 0, 0, 0);
+  const end = interview ? new Date(interview.end_at) : new Date(start.getTime() + 3600000);
+  $("interview-round").value = interview?.round_name || candidate.next_round || "一面";
+  $("interview-round").disabled = Boolean(interview);
+  $("interview-start").value = localDatetime(start); $("interview-end").value = localDatetime(end);
+  $("interview-location").value = interview?.location || "线上";
+  $("interviewer-ids").value = (interview?.interviewer_ids || []).join(", ");
+  $("interview-note").value = interview?.note || "";
   $("schedule-dialog").showModal();
 }
 
 async function scheduleForm(event) {
   event.preventDefault();
+  const interviewId = $("schedule-interview-id").value;
   const payload = {candidate_id: $("schedule-candidate-id").value, round_name: $("interview-round").value, interviewer_ids: $("interviewer-ids").value.split(",").map((x) => x.trim()).filter(Boolean), start_at: new Date($("interview-start").value).toISOString(), end_at: new Date($("interview-end").value).toISOString(), location: $("interview-location").value, note: $("interview-note").value};
-  try { const result = await request(`${API}/workflow/interviews`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)}); $("schedule-dialog").close(); notify(result.sync_status === "calendar_synced" ? "面试已安排，并已同步飞书日历" : "面试已安排，等待飞书日历同步"); await Promise.all([loadPipeline(), loadStatus()]); }
+  const url = interviewId ? `${API}/workflow/interviews/${interviewId}` : `${API}/workflow/interviews`;
+  try { const result = await request(url, {method: interviewId ? "PATCH" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)}); $("schedule-dialog").close(); notify(`${interviewId ? "面试已改期" : "面试已安排"}${result.sync_status === "calendar_synced" ? "，飞书日历已同步" : "，仅保存本地日程"}${result.email_status === "sent" ? "，候选人邮件已发送" : ""}`); await Promise.all([loadPipeline(), loadStatus()]); }
   catch (error) { notify(`面试安排失败：${error.message}`); }
+}
+
+function openFeedback(id) {
+  const candidate = workflowCandidates.find((item) => item.id === id);
+  const interview = candidate?.active_interview || candidate?.pending_feedback;
+  if (!candidate || !interview) { notify("没有待评价的面试"); return; }
+  $("feedback-interview-id").value = interview.interview_id;
+  $("feedback-candidate-name").textContent = `候选人：${candidate.name || "未识别姓名"} · ${candidate.job_name || ""}`;
+  $("feedback-round").textContent = interview.round_name;
+  $("feedback-status").value = interview.round_name === "终面" ? "通过" : "下一轮";
+  $("feedback-text").value = interview.feedback || "";
+  [...$("feedback-status").options].forEach((option) => { option.disabled = interview.round_name === "终面" && option.value === "下一轮"; });
+  $("feedback-dialog").showModal();
+}
+
+async function feedbackForm(event) {
+  event.preventDefault();
+  const id = $("feedback-interview-id").value;
+  const payload = {status: $("feedback-status").value, feedback: $("feedback-text").value.trim()};
+  try { const result = await request(`${API}/workflow/interviews/${id}/feedback`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)}); $("feedback-dialog").close(); notify(`面试评价已保存，候选人进入“${result.candidate.status}”`); await Promise.all([loadPipeline(), loadStatus()]); }
+  catch (error) { notify(`评价提交失败：${error.message}`); }
+}
+
+async function cancelInterview(id) {
+  const candidate = workflowCandidates.find((item) => item.id === id);
+  const interview = candidate?.active_interview;
+  if (!interview) { notify("没有可以取消的面试"); return; }
+  const reason = window.prompt(`取消 ${candidate.name || "候选人"} 的${interview.round_name}，请输入原因：`, "招聘安排调整");
+  if (reason === null) return;
+  try { const result = await request(`${API}/workflow/interviews/${interview.interview_id}/cancel`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({reason})}); notify(`面试已取消${result.email_status === "sent" ? "，候选人邮件已发送" : ""}`); await Promise.all([loadPipeline(), loadStatus()]); }
+  catch (error) { notify(`取消面试失败：${error.message}`); }
+}
+
+async function offerAction(id, action) {
+  const values = {offer_sent: "已发", offer_accepted: "已接受", offer_rejected: "已拒绝"};
+  try { const result = await request(`${API}/workflow/candidates/${id}/offer`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({status: values[action]})}); notify(`Offer 状态已更新为“${result.candidate.status}”`); await Promise.all([loadPipeline(), loadStatus()]); }
+  catch (error) { notify(`Offer 更新失败：${error.message}`); }
 }
 
 async function runNotification(kind) {
@@ -304,6 +362,8 @@ $("summary-btn").addEventListener("click", () => runNotification("daily_summary"
 $("overdue-btn").addEventListener("click", () => runNotification("overdue"));
 $("close-schedule").addEventListener("click", () => $("schedule-dialog").close());
 $("schedule-form").addEventListener("submit", scheduleForm);
+$("close-feedback").addEventListener("click", () => $("feedback-dialog").close());
+$("feedback-form").addEventListener("submit", feedbackForm);
 document.addEventListener("click", (event) => { const button = event.target.closest("[data-candidate][data-action]"); if (button) candidateAction(button.dataset.candidate, button.dataset.action); });
 $("today").textContent = new Intl.DateTimeFormat("zh-CN", {year: "numeric", month: "long", day: "numeric", weekday: "short"}).format(new Date());
 setupMotion();

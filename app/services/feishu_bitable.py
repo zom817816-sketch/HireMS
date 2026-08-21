@@ -50,7 +50,8 @@ class FeishuBitableWriter:
             detail = message or f"HTTP {response.status_code}"
             raise RuntimeError(f"飞书多维表格写入失败：{detail}")
 
-    def write_candidates(self, candidates: list[dict[str, Any]], job_name: str) -> int:
+    def create_candidates(self, candidates: list[dict[str, Any]], job_name: str) -> list[str]:
+        """Create candidate rows and return Feishu record IDs in request order."""
         if not self.configured():
             raise ValueError("多维表格尚未配置。请在 .env 填写 FEISHU_APP_ID、APP_SECRET、APP_TOKEN、TABLE_ID。")
         records = []
@@ -73,7 +74,7 @@ class FeishuBitableWriter:
                 fields["电话"] = str(phone)
             records.append({"fields": fields})
         if not records:
-            return 0
+            return []
         token = self._token()
         url = (f"{self.base_url}/bitable/v1/apps/{settings.FEISHU_BITABLE_APP_TOKEN}"
                f"/tables/{settings.FEISHU_BITABLE_TABLE_ID}/records/batch_create")
@@ -84,4 +85,35 @@ class FeishuBitableWriter:
             timeout=30,
         )
         self._raise_bitable_write_error(response)
-        return len(records)
+        data = response.json().get("data", {})
+        created = data.get("records") or data.get("items") or []
+        record_ids = [str(item.get("record_id") or "") for item in created]
+        if len(record_ids) != len(records) or any(not record_id for record_id in record_ids):
+            raise RuntimeError("飞书已返回成功，但未返回完整的多维表格记录 ID")
+        return record_ids
+
+    def write_candidates(self, candidates: list[dict[str, Any]], job_name: str) -> int:
+        """Backward-compatible count API."""
+        return len(self.create_candidates(candidates, job_name))
+
+    def update_candidate_records(self, record_ids: list[str], fields: dict[str, Any]) -> int:
+        """Update workflow fields on every Bitable row for one candidate."""
+        if not record_ids:
+            return 0
+        if not self.configured():
+            raise ValueError("多维表格尚未配置")
+        token = self._token()
+        url = (
+            f"{self.base_url}/bitable/v1/apps/{settings.FEISHU_BITABLE_APP_TOKEN}"
+            f"/tables/{settings.FEISHU_BITABLE_TABLE_ID}/records/batch_update"
+        )
+        response = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            json={"records": [
+                {"record_id": record_id, "fields": fields} for record_id in record_ids
+            ]},
+            timeout=30,
+        )
+        self._raise_bitable_write_error(response)
+        return len(record_ids)

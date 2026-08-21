@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 from config.config import settings
 from app.services.feishu_workflow import FeishuWorkflowClient
+from app.services.candidate_email import CandidateEmailNotifier
 from app.services.intake_store import IntakeStore
 
 
@@ -12,6 +13,7 @@ class NotificationScheduler:
     def __init__(self) -> None:
         self.store = IntakeStore()
         self.feishu = FeishuWorkflowClient()
+        self.candidate_email = CandidateEmailNotifier()
         self.scheduler = None
 
     def start(self) -> None:
@@ -61,15 +63,31 @@ class NotificationScheduler:
     def interview_reminder(self) -> None:
         if not self.feishu.configured_for_messages():
             return
-        now, due_by = datetime.now(), datetime.now() + timedelta(hours=1, minutes=5)
+        now = datetime.now().astimezone()
+        due_by = now + timedelta(hours=1, minutes=5)
         for interview in self.store.list_interviews():
             start = datetime.fromisoformat(interview["start_at"])
+            if start.tzinfo is None:
+                start = start.astimezone()
             if not (now <= start <= due_by and interview["status"] == "已安排"):
                 continue
             candidate = self.store.get_candidate(interview["candidate_id"])
             text = f"面试提醒：{interview['round_name']}将在 1 小时内开始，候选人：{candidate.get('name') if candidate else ''}。"
-            try:
-                self.feishu.send_text(text, interview["interviewer_ids"] or None)
-                self.store.notification(interview["candidate_id"], "interview_reminder", "feishu", "success", text)
-            except Exception as exc:
-                self.store.notification(interview["candidate_id"], "interview_reminder", "feishu", "failed", str(exc))
+            kind = f"interview_reminder:{interview['interview_id']}"
+            if not self.store.has_notification(interview["candidate_id"], kind, "feishu"):
+                try:
+                    self.feishu.send_text(text, interview["interviewer_ids"] or None)
+                    self.store.notification(interview["candidate_id"], kind, "feishu", "success", text)
+                except Exception as exc:
+                    self.store.notification(interview["candidate_id"], kind, "feishu", "failed", str(exc))
+            if (
+                candidate and candidate.get("email") and self.candidate_email.configured()
+                and not self.store.has_notification(interview["candidate_id"], kind, "email")
+            ):
+                try:
+                    self.candidate_email.interview_reminder(candidate, interview)
+                    self.store.notification(
+                        interview["candidate_id"], kind, "email", "success", candidate["email"],
+                    )
+                except Exception as exc:
+                    self.store.notification(interview["candidate_id"], kind, "email", "failed", str(exc))

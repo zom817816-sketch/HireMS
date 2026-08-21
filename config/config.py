@@ -184,6 +184,18 @@ class Settings:
     MAIL_IMAP_FOLDER: str = os.getenv("MAIL_IMAP_FOLDER", "INBOX")
     MAIL_SUBJECT_KEYWORDS: str = os.getenv("MAIL_SUBJECT_KEYWORDS", "简历,应聘,求职")
     MAIL_LOOKBACK_DAYS: int = int(os.getenv("MAIL_LOOKBACK_DAYS", "7"))
+    # Candidate notifications use SMTP only. Credentials may reuse the mailbox
+    # account, but remain independently configurable for providers that differ.
+    MAIL_SMTP_HOST: str = os.getenv("MAIL_SMTP_HOST") or (
+        MAIL_IMAP_HOST.replace("imap.", "smtp.", 1)
+        if MAIL_IMAP_HOST.startswith("imap.") else ""
+    )
+    MAIL_SMTP_PORT: int = int(os.getenv("MAIL_SMTP_PORT", "465"))
+    MAIL_SMTP_USER: str = os.getenv("MAIL_SMTP_USER") or MAIL_IMAP_USER
+    MAIL_SMTP_PASSWORD: str = os.getenv("MAIL_SMTP_PASSWORD") or MAIL_IMAP_PASSWORD
+    MAIL_SMTP_USE_SSL: bool = _bool_env("MAIL_SMTP_USE_SSL", True)
+    MAIL_SMTP_FROM_NAME: str = os.getenv("MAIL_SMTP_FROM_NAME", "招聘团队")
+    CANDIDATE_EMAIL_NOTIFICATIONS: bool = _bool_env("CANDIDATE_EMAIL_NOTIFICATIONS", True)
 
     FEISHU_APP_ID: str = os.getenv("FEISHU_APP_ID", "")
     FEISHU_APP_SECRET: str = os.getenv("FEISHU_APP_SECRET", "")

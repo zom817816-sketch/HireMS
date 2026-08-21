@@ -61,7 +61,7 @@ class IntakeStore:
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS bitable_sync (
                 query_id TEXT NOT NULL, candidate_id TEXT NOT NULL,
-                job_name TEXT NOT NULL, synced_at TEXT NOT NULL,
+                job_name TEXT NOT NULL, synced_at TEXT NOT NULL, record_id TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY(query_id, candidate_id))"""
             )
             conn.execute(
@@ -92,6 +92,16 @@ class IntakeStore:
                 conn.execute("ALTER TABLE resume_identity ADD COLUMN imported_at_epoch INTEGER NOT NULL DEFAULT 0")
             if "job_category_version" not in identity_columns:
                 conn.execute("ALTER TABLE resume_identity ADD COLUMN job_category_version INTEGER NOT NULL DEFAULT 0")
+            bitable_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(bitable_sync)").fetchall()
+            }
+            if "record_id" not in bitable_columns:
+                conn.execute("ALTER TABLE bitable_sync ADD COLUMN record_id TEXT NOT NULL DEFAULT ''")
+            interview_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(interview)").fetchall()
+            }
+            if "cancel_reason" not in interview_columns:
+                conn.execute("ALTER TABLE interview ADD COLUMN cancel_reason TEXT NOT NULL DEFAULT ''")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_phone ON resume_identity(phone_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_email ON resume_identity(email_key)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_resume_name ON resume_identity(name_key)")
@@ -299,17 +309,34 @@ class IntakeStore:
 
     def mark_bitable_synced(
         self, query_id: str, candidate_ids: list[str], job_name: str,
+        record_ids: list[str] | None = None,
     ) -> None:
         """Atomically record a successful Bitable batch for idempotent retries."""
         if not candidate_ids:
             return
         now = datetime.now().isoformat(timespec="seconds")
+        remote_ids = record_ids or [""] * len(candidate_ids)
+        if len(remote_ids) != len(candidate_ids):
+            raise ValueError("candidate_ids and record_ids must have equal lengths")
         with self._connect() as conn:
             conn.executemany(
                 """INSERT OR IGNORE INTO bitable_sync
-                (query_id, candidate_id, job_name, synced_at) VALUES (?, ?, ?, ?)""",
-                [(query_id, candidate_id, job_name, now) for candidate_id in candidate_ids],
+                (query_id, candidate_id, job_name, synced_at, record_id) VALUES (?, ?, ?, ?, ?)""",
+                [
+                    (query_id, candidate_id, job_name, now, record_id)
+                    for candidate_id, record_id in zip(candidate_ids, remote_ids)
+                ],
             )
+
+    def bitable_record_ids(self, candidate_id: str) -> list[str]:
+        """Return every remote Bitable row associated with a candidate."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT record_id FROM bitable_sync
+                WHERE candidate_id=? AND record_id<>'' ORDER BY synced_at""",
+                (candidate_id,),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
 
     def delete_bitable_sync(self, candidate_id: str) -> int:
         """Remove local sync history when a candidate is permanently deleted."""
@@ -393,7 +420,10 @@ class IntakeStore:
         now = datetime.now().isoformat(timespec="seconds")
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO interview VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                """INSERT INTO interview
+                (interview_id, candidate_id, round_name, interviewer_ids, start_at,
+                end_at, location, note, calendar_event_id, status, feedback,
+                created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (interview["interview_id"], interview["candidate_id"], interview["round_name"], json.dumps(interview["interviewer_ids"]),
                  interview["start_at"], interview["end_at"], interview.get("location", ""), interview.get("note", ""),
                  interview.get("calendar_event_id"), interview.get("status", "已安排"), "", now, now),
@@ -407,7 +437,8 @@ class IntakeStore:
             return None
         return {"interview_id": row[0], "candidate_id": row[1], "round_name": row[2], "interviewer_ids": json.loads(row[3]),
                 "start_at": row[4], "end_at": row[5], "location": row[6], "note": row[7], "calendar_event_id": row[8],
-                "status": row[9], "feedback": row[10], "created_at": row[11], "updated_at": row[12]}
+                "status": row[9], "feedback": row[10], "created_at": row[11], "updated_at": row[12],
+                "cancel_reason": row[13] if len(row) > 13 else ""}
 
     def list_interviews(self, candidate_id: str | None = None) -> list[dict]:
         query, params = "SELECT interview_id FROM interview", ()
@@ -427,10 +458,47 @@ class IntakeStore:
                 raise KeyError(interview_id)
         return self.get_interview(interview_id)  # type: ignore[return-value]
 
+    def reschedule_interview(self, interview_id: str, values: dict) -> dict:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE interview SET interviewer_ids=?, start_at=?, end_at=?,
+                location=?, note=?, calendar_event_id=?, updated_at=? WHERE interview_id=?""",
+                (
+                    json.dumps(values.get("interviewer_ids", [])), values["start_at"],
+                    values["end_at"], values.get("location", ""), values.get("note", ""),
+                    values.get("calendar_event_id"), now, interview_id,
+                ),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(interview_id)
+        return self.get_interview(interview_id)  # type: ignore[return-value]
+
+    def cancel_interview(self, interview_id: str, reason: str = "") -> dict:
+        now = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE interview SET status='已取消', cancel_reason=?,
+                calendar_event_id=NULL, updated_at=?
+                WHERE interview_id=?""",
+                (reason, now, interview_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(interview_id)
+        return self.get_interview(interview_id)  # type: ignore[return-value]
+
     def notification(self, candidate_id: str | None, kind: str, channel: str, status: str, detail: str) -> None:
         with self._connect() as conn:
             conn.execute("INSERT INTO notification_log(candidate_id, kind, channel, status, created_at, detail) VALUES (?, ?, ?, ?, ?, ?)",
                          (candidate_id, kind, channel, status, datetime.now().isoformat(timespec="seconds"), detail[:1000]))
+
+    def has_notification(self, candidate_id: str | None, kind: str, channel: str) -> bool:
+        with self._connect() as conn:
+            return conn.execute(
+                """SELECT 1 FROM notification_log
+                WHERE candidate_id IS ? AND kind=? AND channel=? AND status='success' LIMIT 1""",
+                (candidate_id, kind, channel),
+            ).fetchone() is not None
 
     def stale_candidates(self, hours: int) -> list[dict]:
         cutoff = datetime.now().timestamp() - hours * 3600

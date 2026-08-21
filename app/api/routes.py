@@ -17,7 +17,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.models import (
     UploadResumeResponse, QueryRequest, QueryResponse, ScreeningResult, BitableExportRequest,
-    CandidateActionRequest, InterviewCreateRequest, InterviewFeedbackRequest, OfferUpdateRequest,
+    CandidateActionRequest, InterviewCreateRequest, InterviewFeedbackRequest,
+    InterviewRescheduleRequest, InterviewCancelRequest, OfferUpdateRequest,
 )
 from app.core.cache_manager import CacheManager
 from app.core.document_parser import DocumentParser
@@ -43,6 +44,11 @@ from app.services.feishu_bitable import FeishuBitableWriter
 from app.services.intake_store import IntakeStore
 from app.services.resume_file_store import ResumeFileStore
 from app.services.feishu_workflow import FeishuWorkflowClient
+from app.services.candidate_email import CandidateEmailNotifier
+from app.services.recruitment_state import (
+    InvalidTransition, candidate_action_target, expected_next_round, feedback_target,
+    offer_target, validate_schedule,
+)
 from config.config import settings
 
 router = APIRouter(prefix="/api/v1")
@@ -72,6 +78,7 @@ resume_file_store = ResumeFileStore()
 mail_intake = ImapResumeIntake(ops_store)
 bitable_writer = FeishuBitableWriter()
 feishu_workflow = FeishuWorkflowClient()
+candidate_email = CandidateEmailNotifier()
 _legacy_recall_migration_lock = threading.Lock()
 _legacy_recall_migration_done = False
 
@@ -104,6 +111,25 @@ def _resume_file_available(resume_id: str) -> bool:
 
 def _decorate_resume_file(candidate: dict) -> dict:
     return {**candidate, "has_resume_file": _resume_file_available(candidate.get("id", ""))}
+
+
+def _decorate_workflow_candidate(candidate: dict) -> dict:
+    interviews = ops_store.list_interviews(candidate.get("id", ""))
+    active = next(
+        (item for item in reversed(interviews) if item.get("status") == "已安排"), None,
+    )
+    pending_feedback = next(
+        (item for item in reversed(interviews) if item.get("status") == "待定"), None,
+    )
+    try:
+        next_round = expected_next_round(interviews)
+    except InvalidTransition:
+        next_round = None
+    return {
+        **_decorate_resume_file(candidate), "interviews": interviews,
+        "active_interview": active, "pending_feedback": pending_feedback,
+        "next_round": next_round,
+    }
 
 
 def _upgrade_legacy_recall_metadata() -> int:
@@ -156,9 +182,7 @@ def _upgrade_legacy_recall_metadata() -> int:
 
 
 WORKFLOW_ACTIONS = {
-    "pass": "通过", "reject": "淘汰", "schedule": "安排面试",
-    "offer_pending": "Offer待发", "offer_sent": "Offer已发",
-    "offer_accepted": "Offer已接受", "offer_rejected": "Offer已拒绝",
+    "pass": "通过", "reject": "淘汰",
 }
 
 
@@ -281,11 +305,17 @@ def _sync_candidates_to_bitable(
             "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
         }
 
-    exported = bitable_writer.write_candidates(pending, job_name)
+    record_ids: list[str] = []
+    if hasattr(bitable_writer, "create_candidates"):
+        record_ids = bitable_writer.create_candidates(pending, job_name)
+        exported = len(record_ids)
+    else:  # Test doubles and third-party adapters using the original interface.
+        exported = bitable_writer.write_candidates(pending, job_name)
     if exported != len(pending):
         raise RuntimeError(f"多维表格返回写入 {exported}/{len(pending)} 条，未记录同步状态")
     ops_store.mark_bitable_synced(
         query_id, [str(candidate["id"]) for candidate in pending], job_name,
+        record_ids or None,
     )
     ops_store.log(
         "bitable_export", "success",
@@ -296,6 +326,72 @@ def _sync_candidates_to_bitable(
         "already_synced": len(eligible) - exported,
         "min_score": settings.FEISHU_EXPORT_MIN_SCORE,
     }
+
+
+async def _sync_workflow_to_bitable(
+    candidate: dict[str, Any], interview: dict[str, Any] | None = None,
+) -> str:
+    """Best-effort workflow writeback; local HR actions remain authoritative."""
+    record_ids = ops_store.bitable_record_ids(candidate["id"])
+    if not isinstance(record_ids, list) or not record_ids:
+        return "not_exported"
+    fields: dict[str, Any] = {"处理状态": candidate.get("status", "")}
+    if candidate.get("status", "").startswith("Offer"):
+        fields["Offer状态"] = candidate["status"]
+    if interview:
+        fields.update({
+            "当前面试轮次": interview.get("round_name", ""),
+            "面试状态": interview.get("status", ""),
+            "面试评价": interview.get("feedback", ""),
+            "面试时间": f"{interview.get('start_at', '')} - {interview.get('end_at', '')}",
+        })
+    try:
+        await run_in_threadpool(
+            bitable_writer.update_candidate_records, record_ids, fields,
+        )
+        ops_store.log(
+            "bitable_workflow_sync", "success",
+            f"{candidate.get('name') or candidate['id']} → {candidate.get('status')}",
+        )
+        return "synced"
+    except Exception as error:
+        logger.warning(f"多维表格状态回写失败: {error}")
+        ops_store.log("bitable_workflow_sync", "failed", str(error))
+        return "failed"
+
+
+async def _send_candidate_interview_email(
+    candidate: dict[str, Any], interview: dict[str, Any], action: str,
+) -> str:
+    """Best-effort candidate email; never roll back a valid local workflow action."""
+    if not candidate.get("email"):
+        return "missing_email"
+    try:
+        if action == "cancelled":
+            await run_in_threadpool(candidate_email.interview_cancelled, candidate, interview)
+        else:
+            label = "改期" if action == "rescheduled" else "安排"
+            await run_in_threadpool(
+                candidate_email.interview_scheduled, candidate, interview, label,
+            )
+        ops_store.notification(
+            candidate["id"], f"interview_{action}:{interview['interview_id']}",
+            "email", "success", candidate.get("email", ""),
+        )
+        return "sent"
+    except ValueError as error:
+        ops_store.notification(
+            candidate["id"], f"interview_{action}:{interview['interview_id']}",
+            "email", "pending", str(error),
+        )
+        return "not_configured"
+    except Exception as error:
+        logger.warning(f"候选人面试邮件发送失败: {error}")
+        ops_store.notification(
+            candidate["id"], f"interview_{action}:{interview['interview_id']}",
+            "email", "failed", str(error),
+        )
+        return "failed"
 
 
 def _safe_json_loads(value: Any, default: Any = None) -> Any:
@@ -406,6 +502,7 @@ async def operations_status():
     """Expose setup state without ever returning a secret or password."""
     return {
         "mail": {"configured": mail_intake.configured(), "host": settings.MAIL_IMAP_HOST, "user": settings.MAIL_IMAP_USER},
+        "candidate_email": {"configured": candidate_email.configured()},
         "bitable": {
             "configured": bitable_writer.configured(),
             "app_token": settings.FEISHU_BITABLE_APP_TOKEN[-6:] if settings.FEISHU_BITABLE_APP_TOKEN else "",
@@ -571,7 +668,7 @@ async def get_screening_results(query_id: str):
 
 @router.get("/workflow/candidates")
 async def list_workflow_candidates(status: str | None = None):
-    candidates = [_decorate_resume_file(item) for item in ops_store.list_candidates(status)]
+    candidates = [_decorate_workflow_candidate(item) for item in ops_store.list_candidates(status)]
     return {"candidates": candidates, "total": len(candidates)}
 
 
@@ -580,7 +677,8 @@ async def get_workflow_candidate(candidate_id: str):
     candidate = ops_store.get_candidate(candidate_id)
     if not candidate:
         raise HTTPException(status_code=404, detail="候选人不在工作流队列中")
-    return {"candidate": _decorate_resume_file(candidate), "interviews": ops_store.list_interviews(candidate_id)}
+    decorated = _decorate_workflow_candidate(candidate)
+    return {"candidate": decorated, "interviews": decorated["interviews"]}
 
 
 @router.post("/workflow/candidates/{candidate_id}/action")
@@ -588,9 +686,16 @@ async def update_candidate_action(candidate_id: str, request: CandidateActionReq
     if request.action not in WORKFLOW_ACTIONS:
         raise HTTPException(status_code=400, detail="不支持的候选人操作")
     try:
-        candidate = ops_store.update_candidate(candidate_id, WORKFLOW_ACTIONS[request.action], request.owner_id)
-        ops_store.log("candidate_action", "success", f"{candidate.get('name', candidate_id)} → {WORKFLOW_ACTIONS[request.action]}")
-        return {"candidate": candidate}
+        current = ops_store.get_candidate(candidate_id)
+        if not current:
+            raise KeyError(candidate_id)
+        target = candidate_action_target(current["status"], request.action)
+        candidate = ops_store.update_candidate(candidate_id, target, request.owner_id)
+        ops_store.log("candidate_action", "success", f"{candidate.get('name', candidate_id)} → {target}")
+        sync_status = await _sync_workflow_to_bitable(candidate)
+        return {"candidate": candidate, "bitable_sync": sync_status}
+    except InvalidTransition as error:
+        raise HTTPException(status_code=409, detail=str(error))
     except KeyError:
         raise HTTPException(status_code=404, detail="候选人不存在")
 
@@ -637,6 +742,13 @@ async def schedule_interview(request: InterviewCreateRequest):
     candidate = ops_store.get_candidate(request.candidate_id)
     if not candidate:
         raise HTTPException(status_code=404, detail="候选人不存在")
+    try:
+        validate_schedule(
+            candidate["status"], ops_store.list_interviews(request.candidate_id),
+            request.round_name,
+        )
+    except InvalidTransition as error:
+        raise HTTPException(status_code=409, detail=str(error))
     # Always check conflicts already scheduled in HireMS before creating an event.
     for existing in ops_store.list_interviews():
         overlap = request.start_at < datetime.fromisoformat(existing["end_at"]) and request.end_at > datetime.fromisoformat(existing["start_at"])
@@ -664,33 +776,148 @@ async def schedule_interview(request: InterviewCreateRequest):
         logger.warning(f"日历创建失败: {calendar_error}")
         raise HTTPException(status_code=502, detail=f"飞书日历创建失败：{calendar_error}")
     stored = ops_store.create_interview(interview)
-    ops_store.update_candidate(request.candidate_id, "安排面试")
+    candidate = ops_store.update_candidate(request.candidate_id, "安排面试")
     ops_store.log("interview_schedule", "success", f"{candidate.get('name', '')} {request.round_name}：{sync_status}")
-    return {"interview": stored, "sync_status": sync_status}
+    email_status = await _send_candidate_interview_email(candidate, stored, "scheduled")
+    bitable_sync = await _sync_workflow_to_bitable(candidate, stored)
+    return {
+        "interview": stored, "candidate": candidate, "sync_status": sync_status,
+        "email_status": email_status, "bitable_sync": bitable_sync,
+    }
+
+
+@router.patch("/workflow/interviews/{interview_id}")
+async def reschedule_interview(interview_id: str, request: InterviewRescheduleRequest):
+    if request.end_at <= request.start_at:
+        raise HTTPException(status_code=400, detail="面试结束时间必须晚于开始时间")
+    interview = ops_store.get_interview(interview_id)
+    if not interview:
+        raise HTTPException(status_code=404, detail="面试记录不存在")
+    if interview["status"] != "已安排":
+        raise HTTPException(status_code=409, detail="只有已安排且未结束的面试可以改期")
+    candidate = ops_store.get_candidate(interview["candidate_id"])
+    if not candidate:
+        raise HTTPException(status_code=404, detail="候选人不存在")
+
+    for existing in ops_store.list_interviews():
+        if existing["interview_id"] == interview_id or existing["status"] != "已安排":
+            continue
+        overlap = (
+            request.start_at < datetime.fromisoformat(existing["end_at"])
+            and request.end_at > datetime.fromisoformat(existing["start_at"])
+        )
+        if overlap and set(request.interviewer_ids) & set(existing["interviewer_ids"]):
+            raise HTTPException(status_code=409, detail="所选时段与 HireMS 已安排的面试冲突")
+    if request.interviewer_ids and feishu_workflow.configured_for_calendar():
+        busy = await run_in_threadpool(
+            feishu_workflow.busy_interviewers,
+            request.start_at, request.end_at, request.interviewer_ids,
+        )
+        if busy:
+            raise HTTPException(status_code=409, detail=f"以下面试官在飞书日历中忙碌：{', '.join(busy)}")
+
+    updated_values = {
+        **interview, "interviewer_ids": request.interviewer_ids,
+        "start_at": request.start_at.isoformat(), "end_at": request.end_at.isoformat(),
+        "location": request.location, "note": request.note,
+    }
+    sync_status = "local_only"
+    try:
+        if interview.get("calendar_event_id"):
+            await run_in_threadpool(
+                feishu_workflow.update_interview_event,
+                interview["calendar_event_id"], candidate, updated_values,
+            )
+            sync_status = "calendar_synced"
+        elif feishu_workflow.configured_for_calendar():
+            updated_values["calendar_event_id"] = await run_in_threadpool(
+                feishu_workflow.create_interview_event, candidate, updated_values,
+            )
+            sync_status = "calendar_synced"
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"飞书日历改期失败：{error}")
+
+    stored = ops_store.reschedule_interview(interview_id, updated_values)
+    ops_store.log("interview_reschedule", "success", f"{candidate.get('name', '')} {stored['round_name']}")
+    email_status = await _send_candidate_interview_email(candidate, stored, "rescheduled")
+    bitable_sync = await _sync_workflow_to_bitable(candidate, stored)
+    return {
+        "interview": stored, "candidate": candidate, "sync_status": sync_status,
+        "email_status": email_status, "bitable_sync": bitable_sync,
+    }
+
+
+@router.post("/workflow/interviews/{interview_id}/cancel")
+async def cancel_interview(interview_id: str, request: InterviewCancelRequest):
+    interview = ops_store.get_interview(interview_id)
+    if not interview:
+        raise HTTPException(status_code=404, detail="面试记录不存在")
+    if interview["status"] != "已安排":
+        raise HTTPException(status_code=409, detail="只有已安排的面试可以取消")
+    candidate = ops_store.get_candidate(interview["candidate_id"])
+    if not candidate:
+        raise HTTPException(status_code=404, detail="候选人不存在")
+    if interview.get("calendar_event_id"):
+        try:
+            await run_in_threadpool(
+                feishu_workflow.cancel_interview_event, interview["calendar_event_id"],
+            )
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"飞书日历取消失败：{error}")
+
+    stored = ops_store.cancel_interview(interview_id, request.reason.strip())
+    previous = [
+        item for item in ops_store.list_interviews(candidate["id"])
+        if item["interview_id"] != interview_id and item["status"] not in {"已取消", "已安排"}
+    ]
+    candidate = ops_store.update_candidate(candidate["id"], "面试中" if previous else "通过")
+    ops_store.log("interview_cancel", "success", f"{candidate.get('name', '')} {stored['round_name']}")
+    email_status = await _send_candidate_interview_email(candidate, stored, "cancelled")
+    bitable_sync = await _sync_workflow_to_bitable(candidate, stored)
+    return {
+        "interview": stored, "candidate": candidate,
+        "email_status": email_status, "bitable_sync": bitable_sync,
+    }
 
 
 @router.post("/workflow/interviews/{interview_id}/feedback")
 async def submit_interview_feedback(interview_id: str, request: InterviewFeedbackRequest):
-    if request.status not in {"通过", "淘汰", "待定", "下一轮"}:
-        raise HTTPException(status_code=400, detail="面试结论必须是通过、淘汰、待定或下一轮")
+    if not request.feedback.strip():
+        raise HTTPException(status_code=400, detail="请填写面试评价后再提交结论")
     try:
+        current = ops_store.get_interview(interview_id)
+        if not current:
+            raise KeyError(interview_id)
+        if current["status"] not in {"已安排", "待定"}:
+            raise InvalidTransition(f"该面试当前为“{current['status']}”，不能重复提交评价")
+        workflow_status = feedback_target(current["round_name"], request.status)
         interview = ops_store.update_interview(interview_id, request.status, request.feedback)
-        workflow_status = "Offer待发" if request.status == "通过" else ("淘汰" if request.status == "淘汰" else "面试中")
         candidate = ops_store.update_candidate(interview["candidate_id"], workflow_status)
-        return {"interview": interview, "candidate": candidate}
+        ops_store.log(
+            "interview_feedback", "success",
+            f"{candidate.get('name', '')} {interview['round_name']} → {request.status}",
+        )
+        bitable_sync = await _sync_workflow_to_bitable(candidate, interview)
+        return {"interview": interview, "candidate": candidate, "bitable_sync": bitable_sync}
+    except InvalidTransition as error:
+        raise HTTPException(status_code=409, detail=str(error))
     except KeyError:
         raise HTTPException(status_code=404, detail="面试记录不存在")
 
 
 @router.post("/workflow/candidates/{candidate_id}/offer")
 async def update_offer(candidate_id: str, request: OfferUpdateRequest):
-    allowed = {"待发": "Offer待发", "已发": "Offer已发", "已接受": "Offer已接受", "已拒绝": "Offer已拒绝"}
-    if request.status not in allowed:
-        raise HTTPException(status_code=400, detail="Offer 状态不正确")
     try:
-        candidate = ops_store.update_candidate(candidate_id, allowed[request.status])
-        ops_store.log("offer", "success", f"{candidate.get('name', candidate_id)} → {allowed[request.status]}")
-        return {"candidate": candidate}
+        current = ops_store.get_candidate(candidate_id)
+        if not current:
+            raise KeyError(candidate_id)
+        target = offer_target(current["status"], request.status)
+        candidate = ops_store.update_candidate(candidate_id, target)
+        ops_store.log("offer", "success", f"{candidate.get('name', candidate_id)} → {target}")
+        bitable_sync = await _sync_workflow_to_bitable(candidate)
+        return {"candidate": candidate, "bitable_sync": bitable_sync}
+    except InvalidTransition as error:
+        raise HTTPException(status_code=409, detail=str(error))
     except KeyError:
         raise HTTPException(status_code=404, detail="候选人不存在")
 
@@ -728,17 +955,35 @@ async def run_notifications(kind: str):
             count = 0; ops_store.notification(None, kind, "local", "pending", text)
         return {"sent": count, "summary": text}
     if kind == "interview_reminder":
-        now, end = datetime.now(), datetime.now() + timedelta(hours=1, minutes=5)
-        due = [i for i in ops_store.list_interviews() if now <= datetime.fromisoformat(i["start_at"]) <= end and i["status"] == "已安排"]
+        now = datetime.now().astimezone()
+        end = now + timedelta(hours=1, minutes=5)
+        due = []
+        for item in ops_store.list_interviews():
+            start = datetime.fromisoformat(item["start_at"])
+            if start.tzinfo is None:
+                start = start.astimezone()
+            if now <= start <= end and item["status"] == "已安排":
+                due.append(item)
         count = 0
         for interview in due:
             candidate = ops_store.get_candidate(interview["candidate_id"])
             text = f"面试提醒：{interview['round_name']}将在 1 小时内开始，候选人：{candidate.get('name') if candidate else ''}。"
-            try:
-                count += await run_in_threadpool(feishu_workflow.send_text, text, interview["interviewer_ids"] or None)
-                ops_store.notification(interview["candidate_id"], kind, "feishu", "success", text)
-            except ValueError:
-                ops_store.notification(interview["candidate_id"], kind, "local", "pending", text)
+            reminder_kind = f"interview_reminder:{interview['interview_id']}"
+            if not ops_store.has_notification(interview["candidate_id"], reminder_kind, "feishu"):
+                try:
+                    count += await run_in_threadpool(feishu_workflow.send_text, text, interview["interviewer_ids"] or None)
+                    ops_store.notification(interview["candidate_id"], reminder_kind, "feishu", "success", text)
+                except ValueError:
+                    ops_store.notification(interview["candidate_id"], reminder_kind, "local", "pending", text)
+            if (
+                candidate and candidate.get("email") and candidate_email.configured()
+                and not ops_store.has_notification(interview["candidate_id"], reminder_kind, "email")
+            ):
+                try:
+                    await run_in_threadpool(candidate_email.interview_reminder, candidate, interview)
+                    ops_store.notification(interview["candidate_id"], reminder_kind, "email", "success", candidate["email"])
+                except Exception as error:
+                    ops_store.notification(interview["candidate_id"], reminder_kind, "email", "failed", str(error))
         return {"sent": count, "summary": f"检查到 {len(due)} 场即将开始的面试"}
     raise HTTPException(status_code=404, detail="未知的提醒任务")
 
@@ -754,12 +999,21 @@ async def receive_feishu_card_action(request: Request):
     candidate_id, action = value.get("candidate_id"), value.get("action")
     if not candidate_id or action not in {"pass", "reject", "schedule"}:
         raise HTTPException(status_code=400, detail="卡片动作参数错误")
+    if action == "schedule":
+        raise HTTPException(status_code=409, detail="请在 HireMS 中选择轮次和时间后安排面试")
     try:
-        candidate = ops_store.update_candidate(candidate_id, WORKFLOW_ACTIONS[action])
+        current = ops_store.get_candidate(candidate_id)
+        if not current:
+            raise KeyError(candidate_id)
+        target = candidate_action_target(current["status"], action)
+        candidate = ops_store.update_candidate(candidate_id, target)
+    except InvalidTransition as error:
+        raise HTTPException(status_code=409, detail=str(error))
     except KeyError:
         raise HTTPException(status_code=404, detail="候选人不存在")
     operator = ((payload.get("event") or {}).get("operator") or {}).get("open_id")
     ops_store.log("feishu_card_action", "success", f"{operator or 'HR'} 将 {candidate.get('name', candidate_id)} 标记为 {candidate['status']}")
+    await _sync_workflow_to_bitable(candidate)
     return {"toast": {"type": "success", "content": f"已更新为：{candidate['status']}"}}
 
 
