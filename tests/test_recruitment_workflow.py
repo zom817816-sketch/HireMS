@@ -40,16 +40,19 @@ def _schedule(candidate_id: str, round_name: str, day: int) -> dict:
     return response.json()["interview"]
 
 
-def _feedback(interview_id: str, status: str) -> dict:
+def _feedback(interview_id: str, status: str, next_step: str | None = None) -> dict:
+    payload = {"status": status, "feedback": "能力证据充分，沟通清晰。"}
+    if next_step:
+        payload["next_step"] = next_step
     response = client.post(
         f"/api/v1/workflow/interviews/{interview_id}/feedback",
-        json={"status": status, "feedback": "能力证据充分，沟通清晰。"},
+        json=payload,
     )
     assert response.status_code == 200, response.text
     return response.json()["candidate"]
 
 
-def test_strict_three_round_flow_reaches_offer(tmp_path, monkeypatch):
+def test_hr_manually_chooses_continue_interview_or_offer(tmp_path, monkeypatch):
     from app.api import routes
 
     store = IntakeStore(str(tmp_path / "workflow.sqlite3"))
@@ -57,15 +60,19 @@ def test_strict_three_round_flow_reaches_offer(tmp_path, monkeypatch):
     monkeypatch.setattr(routes, "ops_store", store)
     monkeypatch.setattr(routes, "feishu_workflow", LocalCalendar())
 
-    first = _schedule("candidate-flow", "一面", 10)
+    first = _schedule("candidate-flow", "业务面", 10)
     assert store.get_candidate("candidate-flow")["status"] == "安排面试"
-    assert _feedback(first["interview_id"], "下一轮")["status"] == "面试中"
 
-    second = _schedule("candidate-flow", "二面", 11)
-    assert _feedback(second["interview_id"], "通过")["status"] == "面试中"
+    missing_decision = client.post(
+        f"/api/v1/workflow/interviews/{first['interview_id']}/feedback",
+        json={"status": "通过", "feedback": "建议继续考察。"},
+    )
+    assert missing_decision.status_code == 409
+    assert "下一环节" in missing_decision.json()["detail"]
+    assert _feedback(first["interview_id"], "通过", "继续面试")["status"] == "面试中"
 
-    final = _schedule("candidate-flow", "终面", 12)
-    assert _feedback(final["interview_id"], "通过")["status"] == "Offer待发"
+    second = _schedule("candidate-flow", "课程试讲", 11)
+    assert _feedback(second["interview_id"], "通过", "Offer")["status"] == "Offer待发"
 
     sent = client.post(
         "/api/v1/workflow/candidates/candidate-flow/offer", json={"status": "已发"},
@@ -107,14 +114,20 @@ def test_interview_can_be_rescheduled_and_cancelled(tmp_path, monkeypatch):
     assert cancelled.json()["candidate"]["status"] == "通过"
 
 
-def test_state_machine_rejects_skips():
+def test_state_machine_accepts_custom_rounds_and_manual_next_step():
     assert candidate_action_target("待复核", "pass") == "通过"
     assert expected_next_round([]) == "一面"
-    assert feedback_target("终面", "通过") == "Offer待发"
+    assert expected_next_round([{"round_name": "业务面", "status": "通过"}]) == "下一轮面试"
+    assert feedback_target("一面", "通过", "继续面试") == "面试中"
+    assert feedback_target("一面", "通过", "Offer") == "Offer待发"
     assert offer_target("Offer待发", "已发") == "Offer已发"
+    validate_schedule("通过", [], "课程试讲")
+    validate_schedule(
+        "面试中", [{"round_name": "课程试讲", "status": "通过"}], "负责人沟通",
+    )
     try:
-        validate_schedule("通过", [], "二面")
+        feedback_target("终面", "通过")
     except InvalidTransition as error:
-        assert "一面" in str(error)
+        assert "下一环节" in str(error)
     else:
-        raise AssertionError("skipped round was accepted")
+        raise AssertionError("missing next step was accepted")
