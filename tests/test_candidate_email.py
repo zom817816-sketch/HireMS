@@ -26,6 +26,7 @@ def test_candidate_email_uses_smtp_and_contains_interview_details(monkeypatch):
     monkeypatch.setattr("app.services.candidate_email.settings.MAIL_SMTP_USER", "hr@example.com")
     monkeypatch.setattr("app.services.candidate_email.settings.MAIL_SMTP_PASSWORD", "secret")
     monkeypatch.setattr("app.services.candidate_email.settings.MAIL_SMTP_USE_SSL", True)
+    monkeypatch.setattr("app.services.candidate_email.settings.HR_CONTACT_EMAILS", "recruiter@example.com")
     monkeypatch.setattr("app.services.candidate_email.settings.CANDIDATE_EMAIL_NOTIFICATIONS", True)
 
     CandidateEmailNotifier().interview_scheduled(
@@ -39,5 +40,6 @@ def test_candidate_email_uses_smtp_and_contains_interview_details(monkeypatch):
 
     assert sent["host"] == "smtp.example.com"
     assert sent["message"]["To"] == "candidate@example.com"
+    assert sent["message"]["Reply-To"] == "recruiter@example.com"
     assert "一面" in sent["message"]["Subject"]
     assert "线上会议" in sent["message"].get_content()
