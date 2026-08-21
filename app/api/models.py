@@ -40,6 +40,7 @@ class InterviewCreateRequest(BaseModel):
 class InterviewFeedbackRequest(BaseModel):
     status: str
     feedback: str = ""
+    next_step: Optional[str] = None
 
 
 class InterviewRescheduleRequest(BaseModel):

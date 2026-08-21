@@ -890,12 +890,15 @@ async def submit_interview_feedback(interview_id: str, request: InterviewFeedbac
             raise KeyError(interview_id)
         if current["status"] not in {"已安排", "待定"}:
             raise InvalidTransition(f"该面试当前为“{current['status']}”，不能重复提交评价")
-        workflow_status = feedback_target(current["round_name"], request.status)
+        workflow_status = feedback_target(
+            current["round_name"], request.status, request.next_step,
+        )
         interview = ops_store.update_interview(interview_id, request.status, request.feedback)
         candidate = ops_store.update_candidate(interview["candidate_id"], workflow_status)
         ops_store.log(
             "interview_feedback", "success",
-            f"{candidate.get('name', '')} {interview['round_name']} → {request.status}",
+            f"{candidate.get('name', '')} {interview['round_name']} → "
+            f"{request.status}{f' / {request.next_step}' if request.next_step else ''}",
         )
         bitable_sync = await _sync_workflow_to_bitable(candidate, interview)
         return {"interview": interview, "candidate": candidate, "bitable_sync": bitable_sync}

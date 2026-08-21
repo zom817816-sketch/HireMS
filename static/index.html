@@ -113,7 +113,7 @@
     <form id="schedule-form" method="dialog">
       <div class="dialog-head"><div><p class="eyebrow">INTERVIEW / SCHEDULE</p><h2 id="schedule-title">安排面试</h2></div><button type="button" id="close-schedule" class="close-button" aria-label="关闭">×</button></div>
       <input id="schedule-candidate-id" type="hidden" /><input id="schedule-interview-id" type="hidden" /><p id="schedule-candidate-name" class="dialog-candidate"></p>
-      <div class="form-grid"><label>面试轮次<select id="interview-round"><option>一面</option><option>二面</option><option>终面</option></select></label><label>地点 / 会议链接<input id="interview-location" value="线上" /></label><label>开始时间<input id="interview-start" type="datetime-local" required /></label><label>结束时间<input id="interview-end" type="datetime-local" required /></label></div>
+      <div class="form-grid"><label>面试轮次 / 环节<input id="interview-round" list="interview-round-options" maxlength="30" required placeholder="如：业务面、试讲、HR 面" /><datalist id="interview-round-options"><option value="一面"></option><option value="二面"></option><option value="终面"></option><option value="试讲"></option><option value="加试"></option><option value="HR 面"></option></datalist></label><label>地点 / 会议链接<input id="interview-location" value="线上" /></label><label>开始时间<input id="interview-start" type="datetime-local" required /></label><label>结束时间<input id="interview-end" type="datetime-local" required /></label></div>
       <label>面试官飞书 Open ID <span>多个 ID 用英文逗号分隔，用于提醒</span><input id="interviewer-ids" placeholder="ou_xxx, ou_yyy" /></label>
       <label>面试备注<textarea id="interview-note" rows="3" placeholder="考察重点、会议信息等"></textarea></label>
       <div class="dialog-foot"><span>只在招聘共享日历创建会议日程；候选人将通过邮件收到通知。</span><button id="schedule-submit" class="button signal" value="default">确认安排</button></div>
@@ -124,10 +124,10 @@
     <form id="feedback-form" method="dialog">
       <div class="dialog-head"><div><p class="eyebrow">INTERVIEW / DECISION</p><h2>提交面试评价</h2></div><button type="button" id="close-feedback" class="close-button" aria-label="关闭">×</button></div>
       <input id="feedback-interview-id" type="hidden" /><p id="feedback-candidate-name" class="dialog-candidate"></p>
-      <div class="decision-strip"><span id="feedback-round">一面</span><i></i><small>评价提交后将按轮次推进状态</small></div>
-      <label>面试结论<select id="feedback-status"><option>通过</option><option>下一轮</option><option>待定</option><option>淘汰</option></select></label>
+      <div class="decision-strip"><span id="feedback-round">一面</span><i></i><small>由 HR 手动决定继续面试或进入 Offer</small></div>
+      <div class="form-grid"><label>面试结论<select id="feedback-status"><option>通过</option><option>待定</option><option>淘汰</option></select></label><label id="feedback-next-step-field">下一环节<select id="feedback-next-step"><option>继续面试</option><option value="Offer">进入 Offer</option></select></label></div>
       <label>面试评价<textarea id="feedback-text" rows="6" required placeholder="记录能力证据、岗位匹配、风险点和下一轮建议……"></textarea></label>
-      <div class="dialog-foot"><span>只有终面“通过”才会进入 Offer 待发。</span><button class="button signal" value="default">提交评价</button></div>
+      <div class="dialog-foot"><span>面试通过后必须手动选择下一环节，不再强制经过固定三轮面试。</span><button class="button signal" value="default">提交评价</button></div>
     </form>
   </dialog>
   <script src="./app.js"></script>
