@@ -27,9 +27,34 @@ def test_bitable_writer_omits_blank_phone_number(monkeypatch):
 
     def fake_post(*_, **kwargs):
         captured.update(kwargs["json"])
-        return httpx.Response(200, json={"code": 0, "msg": "success"})
+        return httpx.Response(200, json={
+            "code": 0, "msg": "success",
+            "data": {"records": [{"record_id": "rec_1"}]},
+        })
 
     monkeypatch.setattr("app.services.feishu_bitable.httpx.post", fake_post)
     writer.write_candidates([{"name": "候选人", "overall_score": 0.9, "phone": ""}], "测试岗位")
 
     assert "电话" not in captured["records"][0]["fields"]
+
+
+def test_bitable_writer_updates_existing_workflow_records(monkeypatch):
+    writer = FeishuBitableWriter()
+    captured = {}
+    monkeypatch.setattr(writer, "configured", lambda: True)
+    monkeypatch.setattr(writer, "_token", lambda: "test-token")
+
+    def fake_post(*_, **kwargs):
+        captured.update(kwargs["json"])
+        return httpx.Response(200, json={"code": 0, "msg": "success"})
+
+    monkeypatch.setattr("app.services.feishu_bitable.httpx.post", fake_post)
+    count = writer.update_candidate_records(
+        ["rec_1", "rec_2"], {"处理状态": "面试中", "当前面试轮次": "一面"},
+    )
+
+    assert count == 2
+    assert captured["records"][0] == {
+        "record_id": "rec_1",
+        "fields": {"处理状态": "面试中", "当前面试轮次": "一面"},
+    }

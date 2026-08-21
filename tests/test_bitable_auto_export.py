@@ -74,3 +74,14 @@ def test_cached_screening_result_does_not_run_pipeline(monkeypatch):
     assert response.status_code == 200
     assert response.json()["bitable_sync"]["status"] == "up_to_date"
     routes.query_storage.pop("cached-query", None)
+
+
+def test_bitable_sync_stores_remote_record_ids(tmp_path):
+    store = IntakeStore(str(tmp_path / "ops.sqlite3"))
+    store.mark_bitable_synced(
+        "query-1", ["candidate-1", "candidate-2"], "教师",
+        ["rec-1", "rec-2"],
+    )
+
+    assert store.bitable_record_ids("candidate-1") == ["rec-1"]
+    assert store.bitable_record_ids("candidate-2") == ["rec-2"]
