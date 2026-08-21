@@ -146,6 +146,8 @@ FEISHU_CALLBACK_TOKEN=你的回调Token
 FEISHU_PUBLIC_BASE_URL=https://hirems.example.com
 ```
 
+启动 Web UI 后也可以点击左侧底部的“系统设置”，管理 HR OpenID、HR 联系邮箱、默认面试官、默认面试地点、邮件发件人名称和超时提醒时间。这些业务设置保存在本地 SQLite 并立即生效；`FEISHU_APP_SECRET`、邮箱密码等凭据仍只允许通过 `.env` 配置，不会显示在网页中。
+
 在飞书开放平台为自建应用启用机器人能力，并订阅 `card.action.trigger`。回调地址：
 
 ```text
