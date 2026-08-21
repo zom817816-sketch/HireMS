@@ -104,6 +104,15 @@ MAIL_IMAP_PASSWORD=邮箱专用应用密码
 MAIL_IMAP_FOLDER=INBOX
 MAIL_SUBJECT_KEYWORDS=简历,应聘,求职
 MAIL_LOOKBACK_DAYS=7
+
+# 候选人面试邮件；账号和密码留空时复用上面的 IMAP 配置
+MAIL_SMTP_HOST=smtp.feishu.cn
+MAIL_SMTP_PORT=465
+MAIL_SMTP_USER=hr@example.com
+MAIL_SMTP_PASSWORD=邮箱专用应用密码
+MAIL_SMTP_USE_SSL=true
+MAIL_SMTP_FROM_NAME=招聘团队
+CANDIDATE_EMAIL_NOTIFICATIONS=true
 ```
 
 需要由管理员先开通 IMAP/第三方客户端访问。若企业邮箱不支持 IMAP，可保留手动导入，或实现企业已批准的邮件 API 适配器。
@@ -120,6 +129,12 @@ FEISHU_EXPORT_MIN_SCORE=0.70
 ```
 
 筛选完成后，系统会自动把达到 `FEISHU_EXPORT_MIN_SCORE` 的候选人写入多维表格，并以“筛选批次 + 候选人”记录本地同步状态，重复读取结果或点击“重新同步多维表格”不会重复新增记录。自动写入直接复用本次筛选和 AI 报告，不会再次调用 LLM。新候选人消息卡片不再由 HireMS 直接发送，可在飞书多维表格中根据新增记录配置自动化。
+
+为了让面试和 Offer 状态自动回写，请在同一多维表格增加以下字段：`当前面试轮次`、`面试状态`、`面试评价`、`面试时间`、`Offer状态`。建议均使用文本字段；原有 `处理状态` 字段继续保留。历史记录没有保存飞书 `record_id`，需要重新运行一次岗位筛选生成新记录后才能被后续状态回写定位。
+
+## 面试与 Offer 状态机
+
+候选人必须按 `一面 → 二面 → 终面` 推进，不能跳轮。非终面通过或选择“下一轮”后进入 `面试中`，只有终面通过才进入 `Offer待发`；之后依次为 `Offer已发 → Offer已接受 / Offer已拒绝`。Web UI 支持面试评价、改期和取消。飞书日历只创建或更新招聘共享日历中的会议日程，不添加参与人；候选人在安排、改期、取消和面试前约一小时收到邮件。
 
 目标表建议包含：`姓名`、`邮箱`、`电话`、`岗位`、`匹配度`、`技能`、`期望地点`、`AI分析`、`处理状态`。应用必须拥有该多维表格的编辑权限。
 
@@ -176,6 +191,8 @@ FEISHU_INTERVIEWER_CALENDAR_MAP={"ou_xxx":"feishu.cn_xxx@group.calendar.feishu.c
 | `GET` | `/workflow/candidates` | 获取招聘流程队列 |
 | `POST` | `/workflow/candidates/{id}/action` | 通过、淘汰或安排面试 |
 | `POST` | `/workflow/interviews` | 创建面试排期 |
+| `PATCH` | `/workflow/interviews/{id}` | 修改面试时间、地点和面试官 |
+| `POST` | `/workflow/interviews/{id}/cancel` | 取消面试并同步删除飞书日程 |
 | `POST` | `/workflow/interviews/{id}/feedback` | 回填面试评价 |
 | `POST` | `/workflow/candidates/{id}/offer` | 更新 Offer 状态 |
 | `POST` | `/workflow/notifications/{kind}` | 手动触发 `daily_summary`、`overdue` 或 `interview_reminder` |
